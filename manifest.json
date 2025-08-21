@@ -1,0 +1,10 @@
+{
+    "id": "image-metadata-viewer",
+    "name": "Image Metadata Viewer",
+    "version": "0.2.0",
+    "minAppVersion": "1.5.0",
+    "description": "General image metadata viewer (EXIF, PNG tEXt/iTXt/zTXt) with special support for Stable Diffusion parameters.",
+    "author": "tanaga9",
+    "authorUrl": "https://github.com/tanaga9/obsidian-image-metadata-viewer-plugin",
+    "isDesktopOnly": false
+}

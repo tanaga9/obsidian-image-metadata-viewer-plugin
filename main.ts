@@ -1,0 +1,110 @@
+import { App, Modal, Notice, Plugin, TFile, WorkspaceLeaf, addIcon } from "obsidian";
+import { parseImageMeta } from "./parser";
+import { ImageMetaModal } from "./ui";
+import { ImageMetaView, VIEW_TYPE_IMGMETA } from "./view";
+
+const ICON_ID = "imgmeta-icon";
+
+addIcon(ICON_ID, `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M4 4h16v16H4z" fill="none" stroke="currentColor"/><path d="M7 10h10M7 14h6" stroke="currentColor"/></svg>`);
+
+export default class ImageMetadataViewerPlugin extends Plugin {
+    async onload() {
+        // Register persistent right sidebar view
+        this.registerView(
+            VIEW_TYPE_IMGMETA,
+            (leaf) => new ImageMetaView(leaf, this.app)
+        );
+
+        // Ribbon: open modal (generic label)
+        this.addRibbonIcon(ICON_ID, "Show image metadata (modal)", async () => {
+            await this.showCurrentFileMetadata();
+        });
+
+        // Command: open modal for current file
+        this.addCommand({
+            id: "imgmeta-show-modal",
+            name: "Show metadata for current file (Modal)",
+            callback: async () => this.showCurrentFileMetadata()
+        });
+
+        // Command: open/focus right sidebar view
+        this.addCommand({
+            id: "imgmeta-open-side-view",
+            name: "Open right sidebar metadata view",
+            callback: () => this.activateView()
+        });
+
+        // Update right pane when file changes
+        this.registerEvent(
+            this.app.workspace.on("file-open", async (file) => {
+                const leaf = this.getRightLeafIfExists();
+                if (leaf && leaf.view instanceof ImageMetaView) {
+                    await (leaf.view as ImageMetaView).renderForFile(file ?? null);
+                }
+            })
+        );
+
+        // File menu item
+        this.registerEvent(
+            this.app.workspace.on("file-menu", (menu, file) => {
+                if (file instanceof TFile && this.isImage(file)) {
+                    menu.addItem((item) =>
+                        item
+                            .setTitle("Show image metadata")
+                            .setIcon(ICON_ID)
+                            .onClick(async () => this.openForFile(file))
+                    );
+                }
+            })
+        );
+    }
+
+    onunload() { }
+
+    private isImage(file: TFile) {
+        const ext = file.extension.toLowerCase();
+        return ["png", "jpg", "jpeg", "webp"].includes(ext);
+    }
+
+    private async showCurrentFileMetadata() {
+        const file = this.app.workspace.getActiveFile();
+        if (!file) return new Notice("No active file");
+        if (!(file instanceof TFile) || !this.isImage(file)) return new Notice("Not an image file");
+        await this.openForFile(file);
+    }
+
+    private async openForFile(file: TFile) {
+        try {
+            const buf = await this.app.vault.adapter.readBinary(file.path);
+            const meta = await parseImageMeta(buf, file.extension.toLowerCase());
+            new ImageMetaModal(this.app, file, meta).open();
+        } catch (e) {
+            console.error(e);
+            new Notice("Failed to read metadata");
+        }
+    }
+
+    async activateView() {
+        const right = this.getRightLeafIfExists() ?? this.app.workspace.getRightLeaf(false);
+        if (!right) return;
+        await right.setViewState({ type: VIEW_TYPE_IMGMETA, active: true });
+        this.app.workspace.revealLeaf(right);
+        const file = this.app.workspace.getActiveFile();
+        if (right.view instanceof ImageMetaView) {
+            await (right.view as ImageMetaView).renderForFile(file ?? null);
+        }
+    }
+
+    private getRightLeafIfExists(): WorkspaceLeaf | null {
+        const rightSplit = (this.app.workspace as any).rightSplit;
+        if (!rightSplit) return null;
+        const leaves: WorkspaceLeaf[] = rightSplit?.children
+            ?.flatMap((c: any) => c?.children ?? [])
+            ?.map((c: any) => c?.leaf)
+            ?.filter((l: any) => l) ?? [];
+        for (const leaf of leaves) {
+            if (leaf.view?.getViewType?.() === VIEW_TYPE_IMGMETA) return leaf;
+        }
+        return null;
+    }
+}

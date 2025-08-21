@@ -1,0 +1,30 @@
+.imgmeta-prebox {
+    position: relative;
+}
+
+.imgmeta-pre {
+    white-space: pre-wrap;
+    font-family: var(--font-monospace);
+    font-size: 12px;
+    padding-right: 3rem;
+    /* Reserve space for copy button */
+}
+
+.imgmeta-copy {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    padding: 2px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.imgmeta-copy:hover {
+    filter: brightness(0.95);
+}
+
+.imgmeta-details {
+    margin-top: 1rem;
+}

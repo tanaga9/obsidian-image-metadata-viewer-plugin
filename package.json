@@ -1,0 +1,24 @@
+{
+    "name": "image-metadata-viewer",
+    "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+    "scripts": {
+        "dev": "rollup -c -w",
+        "build": "rollup -c"
+    },
+    "devDependencies": {
+        "@rollup/plugin-commonjs": "^25.0.8",
+        "@rollup/plugin-node-resolve": "^15.2.3",
+        "@rollup/plugin-typescript": "^11.1.6",
+        "obsidian": "^1.5.0",
+        "rollup": "^4.21.2",
+        "tslib": "^2.6.3",
+        "typescript": "^5.5.4"
+    },
+    "dependencies": {
+        "fflate": "^0.8.2",
+        "pnpm": "^10.15.0"
+    }
+}
