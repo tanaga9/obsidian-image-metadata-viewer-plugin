@@ -17,6 +17,11 @@ This repository contains an Obsidian plugin that displays image metadata (EXIF a
 - `npm run dev`: Watch build with Rollup; edits recompile to `main.js`.
 - `npm run build`: Production build.
 
+Build timing policy:
+- Prefer one build after an important series of changes (not after every tiny edit).
+- Always run a fresh build before manual testing and right before a release.
+- During active development, you may use `npm run build` to auto‑rebuild.
+
 Run in Obsidian locally:
 - Symlink or copy this folder into your vault at `.obsidian/plugins/image-metadata-viewer`, then enable the plugin.
 - Example (macOS): `ln -s "$(pwd)" /path/to/Vault/.obsidian/plugins/image-metadata-viewer`
@@ -27,6 +32,7 @@ Run in Obsidian locally:
 - Naming: `camelCase` for variables/functions, `PascalCase` for classes, `UPPER_SNAKE_CASE` for constants.
 - Files: lowercase; use hyphens for multi‑word names.
 - Keep imports relative; avoid Obsidian APIs not declared in `manifest.json`.
+- Comments & docs: Write all in-file comments and project documentation (README, guides) in English.
 
 ## Testing Guidelines
 - No automated tests yet. Perform manual checks in Obsidian:
