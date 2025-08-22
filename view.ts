@@ -16,6 +16,15 @@ export class ImageMetaView extends ItemView {
   async renderForFile(file: TFile | null) {
     const container = this.contentEl;
     container.empty();
+    const copyWithNotice = async (text: string) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        new Notice("Copied");
+      } catch (e) {
+        console.error(e);
+        new Notice("Copy failed");
+      }
+    };
 
     if (!file || !(file instanceof TFile)) {
       container.createEl("div", { text: "No active file" });
@@ -41,7 +50,7 @@ export class ImageMetaView extends ItemView {
       ta.setAttr("spellcheck", "false");
       ta.setAttr("wrap", "off");
       ta.value = JSON.stringify(meta.fields, null, 2);
-      btn.onclick = () => navigator.clipboard.writeText(ta.value ?? "");
+      btn.onclick = () => copyWithNotice(ta.value ?? "");
 
       const details = container.createEl("details", { cls: "imgmeta-details" });
       details.createEl("summary", { text: "Raw chunks (tEXt/iTXt/zTXt)" });
@@ -52,7 +61,7 @@ export class ImageMetaView extends ItemView {
       ta2.setAttr("spellcheck", "false");
       ta2.setAttr("wrap", "off");
       ta2.value = JSON.stringify(meta.raw, null, 2);
-      btn2.onclick = () => navigator.clipboard.writeText(ta2.value ?? "");
+      btn2.onclick = () => copyWithNotice(ta2.value ?? "");
     } catch (e) {
       console.error(e);
       new Notice("Failed to read metadata");

@@ -1,8 +1,14 @@
-import { App, Modal, TFile, Setting } from "obsidian";
+import { App, Modal, TFile, Setting, Notice } from "obsidian";
 import type { ImageMeta } from "./parser";
 
-function copyToClipboard(text: string) {
-    navigator.clipboard.writeText(text);
+async function copyToClipboard(text: string) {
+    try {
+        await navigator.clipboard.writeText(text);
+        new Notice("Copied");
+    } catch (e) {
+        console.error(e);
+        new Notice("Copy failed");
+    }
 }
 
 export class ImageMetaModal extends Modal {
