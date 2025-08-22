@@ -46,3 +46,6 @@
     cursor: pointer;
 }
 .imgmeta-overlay-btn:hover { filter: brightness(0.95); }
+
+/* Make embedded images/embeds indicate clickability */
+.imgmeta-clickable { cursor: pointer; }

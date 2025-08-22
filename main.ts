@@ -57,15 +57,57 @@ export default class ImageMetadataViewerPlugin extends Plugin {
         this.registerEvent(
             this.app.workspace.on("file-menu", (menu, file) => {
                 if (file instanceof TFile && this.isImage(file)) {
+                    // Open modal
                     menu.addItem((item) =>
                         item
                             .setTitle("Show image metadata")
                             .setIcon(ICON_ID)
                             .onClick(async () => this.openForFile(file))
                     );
+                    // Open right sidebar view
+                    menu.addItem((item) =>
+                        item
+                            .setTitle("Show image metadata (right sidebar)")
+                            .setIcon(ICON_ID)
+                            .onClick(async () => this.activateView(file))
+                    );
                 }
             })
         );
+
+        // Make embedded images clickable to open right view
+        this.registerMarkdownPostProcessor((el, ctx) => {
+            const attach = (target: HTMLElement, linkpath: string | null) => {
+                if (!linkpath) return;
+                const dest = this.app.metadataCache.getFirstLinkpathDest(linkpath, ctx.sourcePath);
+                if (!dest || !(dest instanceof TFile) || !this.isImage(dest)) return;
+                target.addEventListener("click", async (ev) => {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    await this.activateView(dest);
+                });
+                target.addClass("imgmeta-clickable");
+                target.setAttr("title", "Show image metadata on right");
+            };
+
+            // Internal embeds and image embeds generally carry a src attribute we can resolve
+            el.querySelectorAll<HTMLElement>("span.internal-embed, span.image-embed").forEach((span) => {
+                const src = span.getAttr("src") || span.getAttribute("src") || span.getAttribute("data-src");
+                attach(span, src);
+            });
+
+            // Fallback: raw <img> tags (standard Markdown images)
+            el.querySelectorAll<HTMLImageElement>("img").forEach((img) => {
+                const parent = img.closest<HTMLElement>("span.internal-embed, span.image-embed");
+                if (parent) return; // already handled above
+                // Some themes add data-src with vault-relative path
+                const linkpath = (img.getAttribute("data-src") || img.getAttribute("src") || "").trim();
+                // If src is an app:// resource, we likely can't resolve; rely on data-src when present
+                if (linkpath && !linkpath.startsWith("app://")) {
+                    attach(img, linkpath);
+                }
+            });
+        });
     }
 
     onunload() { }
@@ -93,7 +135,7 @@ export default class ImageMetadataViewerPlugin extends Plugin {
         }
     }
 
-    async activateView() {
+    async activateView(file?: TFile) {
         let leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_IMGMETA)[0];
         if (!leaf) {
             leaf = this.app.workspace.getRightLeaf(false);
@@ -101,9 +143,9 @@ export default class ImageMetadataViewerPlugin extends Plugin {
         if (!leaf) return;
         await leaf.setViewState({ type: VIEW_TYPE_IMGMETA, active: true });
         this.app.workspace.revealLeaf(leaf);
-        const file = this.app.workspace.getActiveFile();
+        const activeOrProvided = file ?? this.app.workspace.getActiveFile();
         if (leaf.view instanceof ImageMetaView) {
-            await (leaf.view as ImageMetaView).renderForFile(file ?? null);
+            await (leaf.view as ImageMetaView).renderForFile(activeOrProvided ?? null);
         }
     }
     // Removed private DOM traversal helper; using workspace.getLeavesOfType instead
