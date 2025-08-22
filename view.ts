@@ -16,6 +16,7 @@ export class ImageMetaView extends ItemView {
   async renderForFile(file: TFile | null) {
     const container = this.contentEl;
     container.empty();
+    container.addClass("imgmeta-side");
     const copyWithNotice = async (text: string) => {
       try {
         await navigator.clipboard.writeText(text);

@@ -13,7 +13,9 @@
 /* Read-only text metadata area */
 .imgmeta-textarea {
     width: 100%;
-    min-height: 240px;
+    /* Taller by default but bounded */
+    height: clamp(300px, 45vh, 600px);
+    max-height: 70vh;
     resize: vertical;
     font-family: var(--font-monospace);
     font-size: 12px;
@@ -25,6 +27,12 @@
     padding: 8px 12px;
     box-sizing: border-box;
     overflow: auto;
+}
+
+/* Make the sidebar variant taller, close to full height */
+.imgmeta-side .imgmeta-textarea {
+    height: clamp(420px, 65vh, 92vh);
+    max-height: 92vh;
 }
 
 .imgmeta-copy {
