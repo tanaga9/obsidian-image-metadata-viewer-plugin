@@ -24,7 +24,11 @@ export class ImageMetaModal extends Modal {
         ta.setAttr("readonly", "true");
         ta.setAttr("spellcheck", "false");
         ta.setAttr("wrap", "off");
-        ta.value = JSON.stringify(this.meta.fields, null, 2);
+        // Prefer A1111-style multiline parameters when available
+        const a1111 = (typeof (this.meta.fields as any)["parameters_raw"] === "string")
+            ? String((this.meta.fields as any)["parameters_raw"]) : null;
+        const fallback = JSON.stringify(this.meta.fields, null, 2);
+        ta.value = a1111 ?? this.meta.raw["parameters"] ?? fallback;
         btn.onclick = () => copyToClipboard(ta.value ?? "");
 
         new Setting(contentEl)

@@ -49,7 +49,10 @@ export class ImageMetaView extends ItemView {
       ta.setAttr("readonly", "true");
       ta.setAttr("spellcheck", "false");
       ta.setAttr("wrap", "off");
-      ta.value = JSON.stringify(meta.fields, null, 2);
+      const a1111 = (typeof (meta.fields as any)["parameters_raw"] === "string")
+        ? String((meta.fields as any)["parameters_raw"]) : null;
+      const fallback = JSON.stringify(meta.fields, null, 2);
+      ta.value = a1111 ?? meta.raw["parameters"] ?? fallback;
       btn.onclick = () => copyWithNotice(ta.value ?? "");
 
       const details = container.createEl("details", { cls: "imgmeta-details" });
