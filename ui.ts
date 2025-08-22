@@ -14,9 +14,12 @@ export class ImageMetaModal extends Modal {
 
         const box = contentEl.createDiv({ cls: "imgmeta-prebox" });
         const btn = box.createEl("button", { cls: "imgmeta-copy", text: "Copy" });
-        const pre = box.createEl("pre", { cls: "imgmeta-pre" });
-        pre.textContent = JSON.stringify(this.meta.fields, null, 2);
-        btn.onclick = () => copyToClipboard(pre.textContent ?? "");
+        const ta = box.createEl("textarea", { cls: "imgmeta-textarea" });
+        ta.setAttr("readonly", "true");
+        ta.setAttr("spellcheck", "false");
+        ta.setAttr("wrap", "off");
+        ta.value = JSON.stringify(this.meta.fields, null, 2);
+        btn.onclick = () => copyToClipboard(ta.value ?? "");
 
         new Setting(contentEl)
             .addButton((b) => b.setButtonText("Copy JSON").onClick(() => {
@@ -30,8 +33,11 @@ export class ImageMetaModal extends Modal {
         details.createEl("summary", { text: "Raw chunks (tEXt/iTXt/zTXt)" });
         const pre2box = details.createDiv({ cls: "imgmeta-prebox" });
         const btn2 = pre2box.createEl("button", { cls: "imgmeta-copy", text: "Copy" });
-        const pre2 = pre2box.createEl("pre");
-        pre2.textContent = JSON.stringify(this.meta.raw, null, 2);
-        btn2.onclick = () => copyToClipboard(pre2.textContent ?? "");
+        const ta2 = pre2box.createEl("textarea", { cls: "imgmeta-textarea" });
+        ta2.setAttr("readonly", "true");
+        ta2.setAttr("spellcheck", "false");
+        ta2.setAttr("wrap", "off");
+        ta2.value = JSON.stringify(this.meta.raw, null, 2);
+        btn2.onclick = () => copyToClipboard(ta2.value ?? "");
     }
 }

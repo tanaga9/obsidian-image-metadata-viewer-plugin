@@ -10,6 +10,23 @@
     /* Reserve space for copy button */
 }
 
+/* Read-only text metadata area */
+.imgmeta-textarea {
+    width: 100%;
+    min-height: 240px;
+    resize: vertical;
+    font-family: var(--font-monospace);
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-normal);
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    box-sizing: border-box;
+    overflow: auto;
+}
+
 .imgmeta-copy {
     position: absolute;
     top: 6px;
