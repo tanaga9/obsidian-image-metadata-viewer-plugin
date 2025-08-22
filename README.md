@@ -29,6 +29,7 @@ Minimum app version is defined in `manifest.json` (`minAppVersion`, currently 1.
 - Use the ribbon button or command palette “Show image metadata (modal)” to open the modal and copy JSON
 - Use “Open right sidebar metadata view” to show the persistent view
 - For PNG, the “Raw chunks (tEXt/iTXt/zTXt)” section shows the raw chunks and lets you copy them
+ - When an image file itself is open (not an embedded image in a note), a small “Metadata” button appears in the top‑right of the image; click it to open the modal
 
 ## Parser Overview
 - PNG: extracts `tEXt`/`iTXt`/`zTXt`, inflating compressed sections when needed

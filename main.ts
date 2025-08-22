@@ -34,12 +34,21 @@ export default class ImageMetadataViewerPlugin extends Plugin {
             callback: () => this.activateView()
         });
 
-        // Update right pane when file changes
+        // Update right pane when file changes (use public API)
         this.registerEvent(
             this.app.workspace.on("file-open", async (file) => {
-                const leaf = this.getRightLeafIfExists();
-                if (leaf && leaf.view instanceof ImageMetaView) {
-                    await (leaf.view as ImageMetaView).renderForFile(file ?? null);
+                const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_IMGMETA);
+                if (file && file instanceof TFile && this.isImage(file)) {
+                    // Auto-open the view if not present
+                    if (leaves.length === 0) {
+                        await this.activateView();
+                    }
+                }
+                const updateLeaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_IMGMETA);
+                for (const leaf of updateLeaves) {
+                    if (leaf.view instanceof ImageMetaView) {
+                        await (leaf.view as ImageMetaView).renderForFile(file ?? null);
+                    }
                 }
             })
         );
@@ -85,26 +94,17 @@ export default class ImageMetadataViewerPlugin extends Plugin {
     }
 
     async activateView() {
-        const right = this.getRightLeafIfExists() ?? this.app.workspace.getRightLeaf(false);
-        if (!right) return;
-        await right.setViewState({ type: VIEW_TYPE_IMGMETA, active: true });
-        this.app.workspace.revealLeaf(right);
+        let leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_IMGMETA)[0];
+        if (!leaf) {
+            leaf = this.app.workspace.getRightLeaf(false);
+        }
+        if (!leaf) return;
+        await leaf.setViewState({ type: VIEW_TYPE_IMGMETA, active: true });
+        this.app.workspace.revealLeaf(leaf);
         const file = this.app.workspace.getActiveFile();
-        if (right.view instanceof ImageMetaView) {
-            await (right.view as ImageMetaView).renderForFile(file ?? null);
+        if (leaf.view instanceof ImageMetaView) {
+            await (leaf.view as ImageMetaView).renderForFile(file ?? null);
         }
     }
-
-    private getRightLeafIfExists(): WorkspaceLeaf | null {
-        const rightSplit = (this.app.workspace as any).rightSplit;
-        if (!rightSplit) return null;
-        const leaves: WorkspaceLeaf[] = rightSplit?.children
-            ?.flatMap((c: any) => c?.children ?? [])
-            ?.map((c: any) => c?.leaf)
-            ?.filter((l: any) => l) ?? [];
-        for (const leaf of leaves) {
-            if (leaf.view?.getViewType?.() === VIEW_TYPE_IMGMETA) return leaf;
-        }
-        return null;
-    }
+    // Removed private DOM traversal helper; using workspace.getLeavesOfType instead
 }

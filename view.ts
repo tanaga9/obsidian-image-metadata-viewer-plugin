@@ -14,7 +14,7 @@ export class ImageMetaView extends ItemView {
   }
 
   async renderForFile(file: TFile | null) {
-    const container = this.containerEl.children[1];
+    const container = this.contentEl;
     container.empty();
 
     if (!file || !(file instanceof TFile)) {
