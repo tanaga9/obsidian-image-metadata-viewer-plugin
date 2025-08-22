@@ -37,9 +37,9 @@ export default class ImageMetadataViewerPlugin extends Plugin {
         // Update right pane when file changes (use public API)
         this.registerEvent(
             this.app.workspace.on("file-open", async (file) => {
+                const target = await this.resolveTargetForView(file ?? null);
                 const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_IMGMETA);
-                if (file && file instanceof TFile && this.isImage(file)) {
-                    // Auto-open the view if not present
+                if (target) {
                     if (leaves.length === 0) {
                         await this.activateView();
                     }
@@ -47,7 +47,7 @@ export default class ImageMetadataViewerPlugin extends Plugin {
                 const updateLeaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_IMGMETA);
                 for (const leaf of updateLeaves) {
                     if (leaf.view instanceof ImageMetaView) {
-                        await (leaf.view as ImageMetaView).renderForFile(file ?? null);
+                        await (leaf.view as ImageMetaView).renderForFile(target);
                     }
                 }
             })
@@ -75,39 +75,8 @@ export default class ImageMetadataViewerPlugin extends Plugin {
             })
         );
 
-        // Make embedded images clickable to open right view
-        this.registerMarkdownPostProcessor((el, ctx) => {
-            const attach = (target: HTMLElement, linkpath: string | null) => {
-                if (!linkpath) return;
-                const dest = this.app.metadataCache.getFirstLinkpathDest(linkpath, ctx.sourcePath);
-                if (!dest || !(dest instanceof TFile) || !this.isImage(dest)) return;
-                target.addEventListener("click", async (ev) => {
-                    ev.preventDefault();
-                    ev.stopPropagation();
-                    await this.activateView(dest);
-                });
-                target.addClass("imgmeta-clickable");
-                target.setAttr("title", "Show image metadata on right");
-            };
-
-            // Internal embeds and image embeds generally carry a src attribute we can resolve
-            el.querySelectorAll<HTMLElement>("span.internal-embed, span.image-embed").forEach((span) => {
-                const src = span.getAttr("src") || span.getAttribute("src") || span.getAttribute("data-src");
-                attach(span, src);
-            });
-
-            // Fallback: raw <img> tags (standard Markdown images)
-            el.querySelectorAll<HTMLImageElement>("img").forEach((img) => {
-                const parent = img.closest<HTMLElement>("span.internal-embed, span.image-embed");
-                if (parent) return; // already handled above
-                // Some themes add data-src with vault-relative path
-                const linkpath = (img.getAttribute("data-src") || img.getAttribute("src") || "").trim();
-                // If src is an app:// resource, we likely can't resolve; rely on data-src when present
-                if (linkpath && !linkpath.startsWith("app://")) {
-                    attach(img, linkpath);
-                }
-            });
-        });
+        // Removed markdown overlay/click behaviors for embedded images to avoid
+        // altering default interactions in Markdown views.
     }
 
     onunload() { }
@@ -115,6 +84,33 @@ export default class ImageMetadataViewerPlugin extends Plugin {
     private isImage(file: TFile) {
         const ext = file.extension.toLowerCase();
         return ["png", "jpg", "jpeg", "webp"].includes(ext);
+    }
+
+    // If a markdown file has exactly one embedded image, resolve it; otherwise null.
+    private async resolveTargetForView(file: TFile | null): Promise<TFile | null> {
+        if (!file) return null;
+        if (this.isImage(file)) return file;
+        const ext = file.extension.toLowerCase();
+        if (ext !== "md") return null;
+        try {
+            const cache = this.app.metadataCache.getFileCache(file);
+            const candidates: TFile[] = [];
+            const pushIfImage = (link: string | undefined) => {
+                if (!link) return;
+                const dest = this.app.metadataCache.getFirstLinkpathDest(link, file.path);
+                if (dest && dest instanceof TFile && this.isImage(dest)) candidates.push(dest);
+            };
+            if (cache?.embeds) {
+                for (const e of cache.embeds) pushIfImage((e as any).link);
+            }
+            if (cache?.links) {
+                for (const l of cache.links) pushIfImage((l as any).link);
+            }
+            // Deduplicate by path
+            const uniq = Array.from(new Map(candidates.map(f => [f.path, f])).values());
+            if (uniq.length === 1) return uniq[0];
+        } catch { /* ignore */ }
+        return null;
     }
 
     private async showCurrentFileMetadata() {
