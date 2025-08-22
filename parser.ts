@@ -116,6 +116,99 @@ function normalizeKnownFields(raw: Record<string, string>): Record<string, unkno
             try { out[k + "_json"] = JSON.parse(t); } catch { }
         }
     }
+
+    // ComfyUI support: extract common fields from prompt/workflow JSON
+    try {
+        const comfy = extractComfy(out);
+        if (comfy) Object.assign(out, comfy);
+    } catch { /* ignore */ }
+    return out;
+}
+
+// Try to extract ComfyUI prompt/workflow info into top-level fields
+function extractComfy(parsed: Record<string, unknown>): Record<string, unknown> | null {
+    // Gather candidate graphs that look like ComfyUI prompt graphs
+    const candidates: any[] = [];
+    const pushIfGraph = (g: any) => {
+        if (!g || typeof g !== "object") return;
+        // Heuristic: object whose values are nodes with class_type
+        const vals = Object.values(g as Record<string, any>);
+        if (vals.some((n: any) => n && typeof n === "object" && typeof n.class_type === "string")) {
+            candidates.push(g);
+        }
+    };
+
+    if (parsed["prompt_json"]) pushIfGraph(parsed["prompt_json"]);
+    if (parsed["workflow_json"]) {
+        // workflow_json is usually UI layout; sometimes includes nodes
+        const wf = parsed["workflow_json"] as any;
+        if (wf && typeof wf === "object" && Array.isArray((wf as any).nodes)) {
+            // Convert workflow.nodes list back to an id->node map if possible
+            const map: Record<string, any> = {};
+            for (const n of (wf as any).nodes) {
+                if (n && (n.id !== undefined)) map[String(n.id)] = n;
+            }
+            pushIfGraph(map);
+        }
+    }
+    // Also scan any *_json that embeds a prompt/workflow inside
+    for (const [k, v] of Object.entries(parsed)) {
+        if (!k.endsWith("_json")) continue;
+        const obj = v as any;
+        if (obj && typeof obj === "object") {
+            if (obj.prompt) pushIfGraph(obj.prompt);
+            if (obj.workflow) pushIfGraph(obj.workflow);
+        }
+    }
+
+    for (const g of candidates) {
+        const extracted = extractFromComfyPromptGraph(g);
+        if (extracted) return extracted;
+    }
+    return null;
+}
+
+function extractFromComfyPromptGraph(graph: Record<string, any>): Record<string, unknown> | null {
+    const nodes = graph as Record<string, any>;
+    const ids = Object.keys(nodes);
+    if (!ids.length) return null;
+    const findNode = (pred: (n: any) => boolean) => ids.map((id) => nodes[id]).find(pred);
+
+    // Find sampler node (KSampler/KSamplerAdvanced)
+    const samplerNode = findNode((n) => typeof n?.class_type === "string" && n.class_type.startsWith("KSampler"));
+    if (!samplerNode) return null;
+
+    const out: Record<string, unknown> = { generator: "ComfyUI" };
+    const inputs = samplerNode.inputs || {};
+
+    // Copy common fields when present
+    if (inputs.seed !== undefined) out["seed"] = inputs.seed;
+    if (inputs.steps !== undefined) out["steps"] = inputs.steps;
+    if (inputs.cfg !== undefined) out["cfg_scale"] = inputs.cfg;
+    if (inputs.sampler_name !== undefined) out["sampler"] = inputs.sampler_name;
+    if (inputs.scheduler !== undefined) out["scheduler"] = inputs.scheduler;
+    if (inputs.denoise !== undefined) out["denoise"] = inputs.denoise;
+
+    // Resolve text from CLIP encode nodes connected to positive/negative
+    const resolveText = (conn: any): string | undefined => {
+        if (!conn) return undefined;
+        // Connection usually like [nodeId, "output_name"], accept number/string
+        const srcId = Array.isArray(conn) ? conn[0] : conn;
+        const node = nodes[String(srcId)];
+        if (!node) return undefined;
+        const inp = node.inputs || {};
+        if (typeof inp.text === "string") return inp.text;
+        const parts: string[] = [];
+        if (typeof inp.text_g === "string") parts.push(inp.text_g);
+        if (typeof inp.text_l === "string") parts.push(inp.text_l);
+        return parts.length ? parts.join(" ") : undefined;
+    };
+
+    const pos = resolveText(inputs.positive);
+    const neg = resolveText(inputs.negative);
+    if (pos) out["prompt"] = pos;
+    if (neg) out["negative_prompt"] = neg;
+
     return out;
 }
 // ---- JPEG ---- (EXIF UserComment/XPComment may include generation info)

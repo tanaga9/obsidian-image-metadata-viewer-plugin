@@ -1,6 +1,6 @@
 # Image Metadata Viewer (Obsidian Plugin)
 
-An Obsidian plugin to view image metadata. It reads PNG `tEXt`/`iTXt`/`zTXt` chunks and basic info for JPEG/WEBP, and renders results as JSON in a right‑sidebar view or a modal. When present, common AI‑generation parameters (e.g., Stable Diffusion) are normalized into readable fields.
+An Obsidian plugin to view image metadata. It reads PNG `tEXt`/`iTXt`/`zTXt` chunks and basic info for JPEG/WEBP, and renders results as JSON in a right‑sidebar view or a modal. When present, common AI‑generation parameters are normalized into readable fields — supports both Stable Diffusion A1111 WebUI and ComfyUI.
 
 ## Features
 - Right‑sidebar view that keeps metadata for the active image visible
@@ -8,6 +8,7 @@ An Obsidian plugin to view image metadata. It reads PNG `tEXt`/`iTXt`/`zTXt` chu
 - Copy JSON, and expand/copy PNG raw chunks (tEXt/iTXt/zTXt)
 - Supported extensions: `png`, `jpg`, `jpeg`, `webp`
 - Local‑only; no network access
+ - Recognizes Stable Diffusion (AUTOMATIC1111) and ComfyUI parameters/workflows
 
 ## Install (from source)
 1. Install dependencies
@@ -31,8 +32,10 @@ Minimum app version is defined in `manifest.json` (`minAppVersion`, currently 1.
 
 ## Parser Overview
 - PNG: extracts `tEXt`/`iTXt`/`zTXt`, inflating compressed sections when needed
-  - Common generation parameters (e.g., A1111 `parameters`, `prompt`/`negative_prompt`) are normalized into readable fields
-  - If a value looks like JSON (`{...}`/`[...]`), the plugin attempts to parse it into a `*_json` field
+  - Common generation parameters are normalized into readable fields
+    - Stable Diffusion A1111 WebUI: parses `parameters` block and `prompt`/`negative_prompt`
+    - ComfyUI: detects prompt/workflow JSON and extracts `prompt`, `negative_prompt`, `seed`, `steps`, `cfg_scale`, `sampler`, `scheduler`, `denoise` when available
+  - If a value looks like JSON (`{...}`/`[...]`), the plugin attempts to parse it into a `*_json` field (e.g., `prompt_json`, `workflow_json`)
 - JPEG/WEBP: currently minimal; detailed EXIF/XMP parsing not implemented and may return empty fields
 
 ## Security & Scope
