@@ -100,11 +100,9 @@ export default class ImageMetadataViewerPlugin extends Plugin {
                 const dest = this.app.metadataCache.getFirstLinkpathDest(link, file.path);
                 if (dest && dest instanceof TFile && this.isImage(dest)) candidates.push(dest);
             };
+            // Only consider embeds (e.g., ![[...]] or ![...](...)) which render images
             if (cache?.embeds) {
                 for (const e of cache.embeds) pushIfImage((e as any).link);
-            }
-            if (cache?.links) {
-                for (const l of cache.links) pushIfImage((l as any).link);
             }
             // Deduplicate by path
             const uniq = Array.from(new Map(candidates.map(f => [f.path, f])).values());
