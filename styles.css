@@ -35,6 +35,18 @@
     max-height: 92vh;
 }
 
+/* Compact variant for short prompts (Positive/Negative) */
+.imgmeta-textarea--prompt {
+    height: auto;
+    min-height: 64px; /* ~3-4 lines */
+    max-height: 40vh;
+}
+.imgmeta-side .imgmeta-textarea--prompt {
+    height: auto;
+    min-height: 56px;
+    max-height: 35vh;
+}
+
 .imgmeta-copy {
     position: absolute;
     top: 6px;
@@ -55,3 +67,47 @@
 }
 
 /* Removed overlay/hover click UI for markdown embedded images */
+
+/* Inline controls placed above textareas */
+.imgmeta-controls {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin: 4px 0;
+}
+.imgmeta-inline-btn {
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.2;
+    cursor: pointer;
+}
+.imgmeta-inline-btn:hover { filter: brightness(0.95); }
+
+/* Header row with title + right-aligned button */
+.imgmeta-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 0;
+}
+.imgmeta-header h4 { margin: 0; }
+.imgmeta-header .imgmeta-inline-btn { margin-left: auto; }
+
+/* Align summary content and push Copy to the right */
+.imgmeta-details > summary {
+    position: relative;
+    padding-right: 84px; /* reserve space for right-aligned buttons */
+    min-height: 28px; /* ensure room for the button */
+}
+.imgmeta-details[open] > summary { margin-bottom: 6px; }
+.imgmeta-details[open] > .imgmeta-prebox { margin-top: 2px; }
+.imgmeta-details > summary .imgmeta-inline-btn {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+}
