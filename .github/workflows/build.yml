@@ -105,8 +105,8 @@ jobs:
           - Download: ${ID}-${VERSION}.zip from this release
           - Close Obsidian or disable the plugin before replacing files
           - Install path: put the extracted files into your Vault at:
-            - Windows: <Vault>\\.obsidian\\plugins\\${ID}
-            - macOS/Linux: <Vault>/.obsidian/plugins/${ID}
+            - Windows: _(Path to Vault)_ \\\\.obsidian\\plugins\\${ID}
+            - macOS/Linux: _(Path to Vault)_ /.obsidian/plugins/${ID}
           - Final contents inside the folder should be:
             - manifest.json
             - main.js
