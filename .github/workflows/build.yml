@@ -61,6 +61,8 @@ jobs:
           node -e "console.log('ID='+require('./manifest.json').id)" >> "$GITHUB_ENV"
           node -e "console.log('VERSION='+require('./manifest.json').version)" >> "$GITHUB_ENV"
           node -e "console.log('VERSION_PKG='+require('./package.json').version)" >> "$GITHUB_ENV"
+          node -e "console.log('NAME='+require('./manifest.json').name)" >> "$GITHUB_ENV"
+          node -e "console.log('MIN_APP='+require('./manifest.json').minAppVersion)" >> "$GITHUB_ENV"
           echo "VERSION_TAG=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
 
       - name: Compare versions and fail if mismatched
@@ -89,6 +91,39 @@ jobs:
             zip -j "release/${ID}-${VERSION}.zip" release/manifest.json release/main.js
           fi
 
+      - name: Generate Release Notes (manual install guide)
+        shell: bash
+        run: |
+          ZIP_PATH="release/${ID}-${VERSION}.zip"
+          SHA256=$(sha256sum "$ZIP_PATH" | awk '{print $1}')
+          cat > release/RELEASE_NOTES.md << EOF
+          ${NAME} ${VERSION}
+          
+          Manual Install (without Community plugin browser)
+          
+          - Requirements: Obsidian ${MIN_APP}+ on Desktop (Windows/macOS/Linux)
+          - Download: ${ID}-${VERSION}.zip from this release
+          - Close Obsidian or disable the plugin before replacing files
+          - Install path: put the extracted files into your Vault at:
+            - Windows: <Vault>\\.obsidian\\plugins\\${ID}
+            - macOS/Linux: <Vault>/.obsidian/plugins/${ID}
+          - Final contents inside the folder should be:
+            - manifest.json
+            - main.js
+            - styles.css (if present)
+          - Reopen Obsidian (or re-enable the plugin) and verify under Settings → Community plugins
+          
+          Notes
+          - This release ships only the plugin files (no external network access needed)
+          - SHA-256 (${ID}-${VERSION}.zip):
+            ${SHA256}
+          - If updating, replace existing files in the same plugin folder
+          
+          Troubleshooting
+          - If the plugin does not appear, confirm the folder name is exactly "${ID}" and that manifest.json is directly inside it
+          - Ensure the app version meets the minimum (${MIN_APP})
+          EOF
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
@@ -98,3 +133,4 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             release/*.zip
+          body_path: release/RELEASE_NOTES.md
