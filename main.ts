@@ -34,6 +34,33 @@ export default class ImageMetadataViewerPlugin extends Plugin {
             callback: () => this.activateView()
         });
 
+        // Commands: in-pane search within right sidebar view
+        this.addCommand({
+            id: "imgmeta-view-find",
+            name: "Find in metadata view",
+            callback: async () => {
+                await this.activateView();
+                const v = this.app.workspace.getLeavesOfType(VIEW_TYPE_IMGMETA)[0]?.view;
+                if (v instanceof ImageMetaView) v.openSearchBar();
+            }
+        });
+        this.addCommand({
+            id: "imgmeta-view-find-next",
+            name: "Find next in metadata view",
+            callback: () => {
+                const v = this.app.workspace.getLeavesOfType(VIEW_TYPE_IMGMETA)[0]?.view;
+                if (v instanceof ImageMetaView) v.findNext();
+            }
+        });
+        this.addCommand({
+            id: "imgmeta-view-find-prev",
+            name: "Find previous in metadata view",
+            callback: () => {
+                const v = this.app.workspace.getLeavesOfType(VIEW_TYPE_IMGMETA)[0]?.view;
+                if (v instanceof ImageMetaView) v.findPrev();
+            }
+        });
+
         // Update right pane when file changes (use public API)
         this.registerEvent(
             this.app.workspace.on("file-open", async (file) => {
