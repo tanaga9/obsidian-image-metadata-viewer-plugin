@@ -25,13 +25,10 @@ export class ImageMetaView extends ItemView {
   getIcon() { return "info"; }
 
   async onOpen() {
-    // Key handling scoped to this view's container
-    this.contentEl.addEventListener("keydown", this.onKeydown, { capture: true });
     await this.renderForFile(this.app.workspace.getActiveFile());
   }
 
   async onClose() {
-    this.contentEl.removeEventListener("keydown", this.onKeydown, { capture: true } as any);
   }
 
   async renderForFile(file: TFile | null) {
@@ -260,22 +257,9 @@ export class ImageMetaView extends ItemView {
     this.setSearchEnabled(this.searchEnabled);
   }
 
-  private onKeydown = (ev: KeyboardEvent) => {
-    const isCmdOrCtrl = (ev.ctrlKey || ev.metaKey) && !ev.altKey;
-    // Open search: Cmd/Ctrl+F
-    if (isCmdOrCtrl && ev.key.toLowerCase() === "f") {
-      ev.preventDefault();
-      ev.stopPropagation();
-      this.openSearchBar();
-      return;
-    }
-    // Navigate: F3/Shift+F3
-    if (ev.key === "F3") {
-      ev.preventDefault();
-      ev.shiftKey ? this.findPrev() : this.findNext();
-      return;
-    }
-  };
+  // Intentionally no global key handlers here to avoid interfering with
+  // Obsidian's built-in editor search. Navigation keys are handled via the
+  // Find input (Enter/Shift+Enter) and Prev/Next buttons.
 
   openSearchBar() {
     if (!this.searchBarEl) this.buildSearchBar(this.contentEl);
