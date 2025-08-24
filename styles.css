@@ -29,6 +29,30 @@
     overflow: auto;
 }
 
+/* Wrapper to allow overlay highlight above textarea */
+.imgmeta-textwrap {
+    position: relative;
+}
+.imgmeta-textwrap .imgmeta-textarea {
+    position: relative;
+}
+.imgmeta-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 1; /* above textarea */
+    pointer-events: none;
+    padding: 8px 12px; /* match textarea padding */
+    font-family: var(--font-monospace);
+    font-size: 12px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    color: transparent; /* hide mirror text, show only outlined spans */
+    overflow: hidden; /* clip when translating inner */
+}
+.imgmeta-overlay-content {
+    will-change: transform;
+}
+
 /* Make the sidebar variant taller, close to full height */
 .imgmeta-side .imgmeta-textarea {
     height: clamp(420px, 65vh, 92vh);
@@ -110,4 +134,52 @@
     right: 0;
     top: 50%;
     transform: translateY(-50%);
+}
+
+/* Search bar at top of sidebar view */
+.imgmeta-searchbar {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 4px;
+    background: var(--background-primary);
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+.imgmeta-searchbar input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    padding: 4px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-modifier-form-field);
+    color: var(--text-normal);
+}
+.imgmeta-searchbar .imgmeta-search-count {
+    font-size: 12px;
+    color: var(--text-muted);
+    min-width: 48px;
+    text-align: center;
+}
+.imgmeta-searchbar .imgmeta-inline-btn.is-active {
+    background: var(--background-modifier-active-hover);
+}
+.imgmeta-searchbar.is-disabled {
+    opacity: 0.6;
+}
+.imgmeta-body {
+    display: block;
+}
+
+/* Highlight only the matched substring, outline like Obsidian search */
+.imgmeta-hit-range {
+    background-color: color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+    border-radius: 2px;
+    padding: 0 1px;
+}
+.imgmeta-hit-range.is-current {
+    outline: 2px solid var(--interactive-accent);
+    background-color: color-mix(in srgb, var(--interactive-accent) 28%, transparent);
 }

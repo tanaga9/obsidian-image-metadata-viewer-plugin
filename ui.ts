@@ -30,7 +30,7 @@ export class ImageMetaModal extends Modal {
                 headerP.createEl("h4", { text: "Positive Prompt" });
                 const copyP = headerP.createEl("button", { cls: "imgmeta-inline-btn", text: "Copy" });
                 const taP = contentEl.createEl("textarea", { cls: "imgmeta-textarea imgmeta-textarea--prompt" });
-                taP.setAttr("readonly", "true"); taP.setAttr("spellcheck", "false"); taP.value = pos;
+                taP.setAttr("readonly", "true"); taP.setAttr("spellcheck", "false"); taP.setAttr("wrap", "soft"); taP.value = pos;
                 copyP.onclick = () => copyToClipboard(taP.value ?? "");
             }
             if (neg) {
@@ -38,7 +38,7 @@ export class ImageMetaModal extends Modal {
                 headerN.createEl("h4", { text: "Negative Prompt" });
                 const copyN = headerN.createEl("button", { cls: "imgmeta-inline-btn", text: "Copy" });
                 const taN = contentEl.createEl("textarea", { cls: "imgmeta-textarea imgmeta-textarea--prompt" });
-                taN.setAttr("readonly", "true"); taN.setAttr("spellcheck", "false"); taN.value = neg;
+                taN.setAttr("readonly", "true"); taN.setAttr("spellcheck", "false"); taN.setAttr("wrap", "soft"); taN.value = neg;
                 copyN.onclick = () => copyToClipboard(taN.value ?? "");
             }
 
@@ -51,7 +51,7 @@ export class ImageMetaModal extends Modal {
                 const copyPS = sumP.createEl("button", { cls: "imgmeta-inline-btn", text: "Copy" });
                 const boxPJ = detailsP.createDiv({ cls: "imgmeta-prebox" });
                 const taPJ = boxPJ.createEl("textarea", { cls: "imgmeta-textarea" });
-                taPJ.setAttr("readonly", "true"); taPJ.setAttr("spellcheck", "false"); taPJ.setAttr("wrap", "off");
+                taPJ.setAttr("readonly", "true"); taPJ.setAttr("spellcheck", "false"); taPJ.setAttr("wrap", "soft");
                 taPJ.value = JSON.stringify(fields["prompt_json"], null, 2);
                 copyPS.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); copyToClipboard(taPJ.value ?? ""); };
                 // Export button
@@ -68,7 +68,7 @@ export class ImageMetaModal extends Modal {
                 const copyWS = sumW.createEl("button", { cls: "imgmeta-inline-btn", text: "Copy" });
                 const boxWJ = detailsW.createDiv({ cls: "imgmeta-prebox" });
                 const taWJ = boxWJ.createEl("textarea", { cls: "imgmeta-textarea" });
-                taWJ.setAttr("readonly", "true"); taWJ.setAttr("spellcheck", "false"); taWJ.setAttr("wrap", "off");
+                taWJ.setAttr("readonly", "true"); taWJ.setAttr("spellcheck", "false"); taWJ.setAttr("wrap", "soft");
                 taWJ.value = JSON.stringify(fields["workflow_json"], null, 2);
                 copyWS.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); copyToClipboard(taWJ.value ?? ""); };
                 new Setting(detailsW).addButton((b) => b.setButtonText("Export workflow.json").onClick(async () => {
@@ -82,7 +82,7 @@ export class ImageMetaModal extends Modal {
             sumR.setText("Raw chunks (tEXt/iTXt/zTXt)");
             const rawBox = detailsRaw.createDiv({ cls: "imgmeta-prebox" });
             const rawTa = rawBox.createEl("textarea", { cls: "imgmeta-textarea" });
-            rawTa.setAttr("readonly", "true"); rawTa.setAttr("spellcheck", "false"); rawTa.setAttr("wrap", "off");
+            rawTa.setAttr("readonly", "true"); rawTa.setAttr("spellcheck", "false"); rawTa.setAttr("wrap", "soft");
             rawTa.value = JSON.stringify(this.meta.raw, null, 2);
             const rawCopyS = sumR.createEl("button", { cls: "imgmeta-inline-btn", text: "Copy" });
             rawCopyS.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); copyToClipboard(rawTa.value ?? ""); };
@@ -105,7 +105,7 @@ export class ImageMetaModal extends Modal {
         }
         ta.setAttr("readonly", "true");
         ta.setAttr("spellcheck", "false");
-        ta.setAttr("wrap", "off");
+        ta.setAttr("wrap", "soft");
         const a1111 = (typeof (this.meta.fields as any)["parameters_raw"] === "string")
             ? String((this.meta.fields as any)["parameters_raw"]) : null;
         const fallback = JSON.stringify(this.meta.fields, null, 2);
@@ -121,7 +121,7 @@ export class ImageMetaModal extends Modal {
         const ta2 = pre2box.createEl("textarea", { cls: "imgmeta-textarea" });
         ta2.setAttr("readonly", "true");
         ta2.setAttr("spellcheck", "false");
-        ta2.setAttr("wrap", "off");
+        ta2.setAttr("wrap", "soft");
         ta2.value = JSON.stringify(this.meta.raw, null, 2);
         const btn2 = sumD.createEl("button", { cls: "imgmeta-inline-btn", text: "Copy" });
         btn2.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); copyToClipboard(ta2.value ?? ""); };
