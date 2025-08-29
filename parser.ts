@@ -56,8 +56,8 @@ function parse_tEXt(data: Uint8Array) {
         key: ""
         , text: ""
     };
-    const key = strFromU8(data.subarray(0, zero));
-    const text = strFromU8(data.subarray(zero + 1));
+    const key = latin1FromU8(data.subarray(0, zero));
+    const text = latin1FromU8(data.subarray(zero + 1));
     return { key, text };
 }
 function parse_zTXt(data: Uint8Array) {
@@ -66,12 +66,13 @@ function parse_zTXt(data: Uint8Array) {
         key: ""
         , text: ""
     };
-    const key = strFromU8(data.subarray(0, zero));
+    const key = latin1FromU8(data.subarray(0, zero));
     const method = data[zero + 1];
     if (method !== 0) return { key, text: "" };
     try {
         const inflated = inflateSync(data.subarray(zero + 2));
-        const text = strFromU8(inflated);
+        // zTXt text is Latin-1 after decompression
+        const text = latin1FromU8(inflated);
         return { key, text };
     } catch { return { key, text: "" }; }
 }
@@ -92,6 +93,12 @@ function parse_iTXt(data: Uint8Array) {
         return { key, text };
     } catch { return { key, text: "" }; }
 
+}
+// PNG tEXt/zTXt are Latin-1 per spec; iTXt is UTF-8.
+function latin1FromU8(u: Uint8Array): string {
+    let s = "";
+    for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]);
+    return s;
 }
 // Normalize common generator metadata (e.g., Stable Diffusion) from text chunks
 function normalizeKnownFields(raw: Record<string, string>): Record<string, unknown> {
