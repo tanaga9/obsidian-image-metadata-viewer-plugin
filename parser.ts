@@ -15,11 +15,29 @@ export type ImageMeta = {
 };
 export async function parseImageMeta(buf: ArrayBuffer, ext: string): Promise<ImageMeta> {
     const u8 = new Uint8Array(buf);
-    const lower = ext.toLowerCase();
-    if (lower === "png") return parsePng(u8);
-    if (lower === "jpg" || lower === "jpeg") return parseJpeg(u8);
-    if (lower === "webp") return parseWebp(u8);
+    const lower = (ext || "").toLowerCase();
+    const detected = detectFormatByHeader(u8);
+    const fmt = detected !== "unknown" ? detected : (lower === "jpg" ? "jpeg" : (lower as any));
+    if (fmt === "png") return parsePng(u8);
+    if (fmt === "jpeg") return parseJpeg(u8);
+    if (fmt === "webp") return parseWebp(u8);
     return { format: "unknown", fields: {}, raw: {} };
+}
+
+function detectFormatByHeader(u8: Uint8Array): "png" | "jpeg" | "webp" | "unknown" {
+    if (u8.length >= 8) {
+        const pngSig = [137, 80, 78, 71, 13, 10, 26, 10];
+        let isPng = true; for (let i = 0; i < 8; i++) if (u8[i] !== pngSig[i]) { isPng = false; break; }
+        if (isPng) return "png";
+    }
+    if (u8.length >= 12) {
+        if (u8[0] === 0x52 && u8[1] === 0x49 && u8[2] === 0x46 && u8[3] === 0x46 &&
+            u8[8] === 0x57 && u8[9] === 0x45 && u8[10] === 0x42 && u8[11] === 0x50) {
+            return "webp";
+        }
+    }
+    if (u8.length >= 2 && u8[0] === 0xff && u8[1] === 0xd8) return "jpeg";
+    return "unknown";
 }
 // ---- PNG ----
 function parsePng(u8: Uint8Array): ImageMeta {
