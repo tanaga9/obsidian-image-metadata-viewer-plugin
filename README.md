@@ -40,7 +40,7 @@ This plugin parses metadata from PNG, JPEG, and WEBP, then normalizes common AI�
 - ComfyUI: detects prompt/workflow JSON, exposes prompt fields and pretty‑prints JSON with Copy/Export.
 - Text decoding prioritizes preserving original content across encodings.
 
-For complete heuristics, edge cases, and format‑specific details, see [metadata-parsing-knowledge](./metadata-parsing-knowledge.md).
+For complete heuristics, edge cases, and format‑specific details, see [image-metadata-parsing-guide](./image-metadata-parsing-guide.md).
 
 ## Security & Scope
 - No network calls; only reads local files in your Vault

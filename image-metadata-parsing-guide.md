@@ -1,6 +1,14 @@
-# Metadata Parsing Knowledge
+# Image Metadata Parsing Guide
 
 This document describes how to extract Stable Diffusion metadata from PNG, JPEG, and WebP images. It covers supported formats, general goals, detailed parsing strategies for each format, and cross-cutting concerns such as encoding heuristics and recovery methods.
+
+## Why This Document
+
+- Image metadata storage is fragmented across PNG text chunks, EXIF, XMP, and JPEG comments, and AI tools write to different fields with varying encodings.
+- Incorrect or lossy decoding silently corrupts prompts and settings; preserving the original text is essential for reproducibility.
+- Spec-compliant decoding (Latin-1 for PNG tEXt/zTXt, UTF-8 for iTXt, EXIF UserComment prefixes, UTF-16 for XP* tags) plus best-of heuristics prevents mojibake across locales.
+- A clear source priority and recovery strategy ensures a single, coherent A1111-style block can be reconstructed from messy inputs.
+- This document is the reference that keeps code and reviews aligned, explaining trade-offs and edge cases to maintain consistent behavior.
 
 ## Supported Formats
 
