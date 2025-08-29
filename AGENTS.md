@@ -34,6 +34,10 @@ Run in Obsidian locally:
 - Keep imports relative; avoid Obsidian APIs not declared in `manifest.json`.
 - Comments & docs: Write all in-file comments and project documentation (README, guides) in English.
 
+## Language Policy
+- Files: Keep all source code comments, commit messages, and project documentation in English (as above).
+- Console/interaction: When interacting in the console or chat (e.g., Codex CLI prompts/replies), use the user's local language as appropriate.
+
 ## Testing Guidelines
 - No automated tests yet. Perform manual checks in Obsidian:
   - Open a PNG/JPEG/WEBP file; verify fields render and “Copy” works.
