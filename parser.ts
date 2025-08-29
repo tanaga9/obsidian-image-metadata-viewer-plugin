@@ -1,4 +1,4 @@
-import { unzipSync, strFromU8 } from "fflate";
+import { unzipSync, strFromU8, inflateSync } from "fflate";
 /**
  * Lightweight image metadata parsing for PNG/JPEG/WEBP.
  *
@@ -15,11 +15,29 @@ export type ImageMeta = {
 };
 export async function parseImageMeta(buf: ArrayBuffer, ext: string): Promise<ImageMeta> {
     const u8 = new Uint8Array(buf);
-    const lower = ext.toLowerCase();
-    if (lower === "png") return parsePng(u8);
-    if (lower === "jpg" || lower === "jpeg") return parseJpeg(u8);
-    if (lower === "webp") return parseWebp(u8);
+    const lower = (ext || "").toLowerCase();
+    const detected = detectFormatByHeader(u8);
+    const fmt = detected !== "unknown" ? detected : (lower === "jpg" ? "jpeg" : (lower as any));
+    if (fmt === "png") return parsePng(u8);
+    if (fmt === "jpeg") return parseJpeg(u8);
+    if (fmt === "webp") return parseWebp(u8);
     return { format: "unknown", fields: {}, raw: {} };
+}
+
+function detectFormatByHeader(u8: Uint8Array): "png" | "jpeg" | "webp" | "unknown" {
+    if (u8.length >= 8) {
+        const pngSig = [137, 80, 78, 71, 13, 10, 26, 10];
+        let isPng = true; for (let i = 0; i < 8; i++) if (u8[i] !== pngSig[i]) { isPng = false; break; }
+        if (isPng) return "png";
+    }
+    if (u8.length >= 12) {
+        if (u8[0] === 0x52 && u8[1] === 0x49 && u8[2] === 0x46 && u8[3] === 0x46 &&
+            u8[8] === 0x57 && u8[9] === 0x45 && u8[10] === 0x42 && u8[11] === 0x50) {
+            return "webp";
+        }
+    }
+    if (u8.length >= 2 && u8[0] === 0xff && u8[1] === 0xd8) return "jpeg";
+    return "unknown";
 }
 // ---- PNG ----
 function parsePng(u8: Uint8Array): ImageMeta {
@@ -56,8 +74,8 @@ function parse_tEXt(data: Uint8Array) {
         key: ""
         , text: ""
     };
-    const key = strFromU8(data.subarray(0, zero));
-    const text = strFromU8(data.subarray(zero + 1));
+    const key = latin1FromU8(data.subarray(0, zero));
+    const text = latin1FromU8(data.subarray(zero + 1));
     return { key, text };
 }
 function parse_zTXt(data: Uint8Array) {
@@ -66,15 +84,13 @@ function parse_zTXt(data: Uint8Array) {
         key: ""
         , text: ""
     };
-    const key = strFromU8(data.subarray(0, zero));
+    const key = latin1FromU8(data.subarray(0, zero));
     const method = data[zero + 1];
     if (method !== 0) return { key, text: "" };
     try {
-        const inflated = unzipSync({
-            _
-                : data.subarray(zero + 2)
-        })._;
-        const text = strFromU8(inflated);
+        const inflated = inflateSync(data.subarray(zero + 2));
+        // zTXt text is Latin-1 after decompression
+        const text = latin1FromU8(inflated);
         return { key, text };
     } catch { return { key, text: "" }; }
 }
@@ -91,13 +107,16 @@ function parse_iTXt(data: Uint8Array) {
 /* translated */ readz();
     const rest = data.subarray(p);
     try {
-        const text = compFlag ? strFromU8(unzipSync({
-            _
-                : rest
-        })._) : strFromU8(rest);
+        const text = compFlag ? strFromU8(inflateSync(rest)) : strFromU8(rest);
         return { key, text };
     } catch { return { key, text: "" }; }
 
+}
+// PNG tEXt/zTXt are Latin-1 per spec; iTXt is UTF-8.
+function latin1FromU8(u: Uint8Array): string {
+    let s = "";
+    for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]);
+    return s;
 }
 // Normalize common generator metadata (e.g., Stable Diffusion) from text chunks
 function normalizeKnownFields(raw: Record<string, string>): Record<string, unknown> {
@@ -326,31 +345,14 @@ function parseJpeg(u8: Uint8Array): ImageMeta {
     }
     if (jpegComment) tryTexts.push(jpegComment);
 
-    let bestBlock: { text: string; score: number } | null = null;
-    for (const t of tryTexts) {
-        const block = extractA1111BlockFromText(t);
-        if (block) {
-            const sc = scoreA1111Block(block);
-            if (!bestBlock || sc > bestBlock.score) bestBlock = { text: block, score: sc };
-        } else {
-            const interp = interpretSdText(t);
-            if (interp) {
-                const blk = extractA1111BlockFromText(interp) || interp;
-                const sc = scoreA1111Block(blk);
-                if (!bestBlock || sc > bestBlock.score) bestBlock = { text: blk, score: sc };
-            }
-        }
-    }
-    if (bestBlock) raw["parameters"] = bestBlock.text;
-
-    // Last resort: scan entire file for embedded JSON or UTF-16 block
+    const selected = selectBestParametersFromTexts(tryTexts);
+    if (selected) raw["parameters"] = selected;
     if (!raw["parameters"]) {
-        const wholeScan = scanWholeFileForMeta(u8);
-        if (wholeScan) raw["parameters"] = wholeScan;
-        if (!raw["parameters"]) {
-            const recovered = scanFileForSdText(u8);
-            if (recovered) raw["parameters"] = recovered;
-        }
+        const rec = recoverParameters(u8, null);
+        if (rec) raw["parameters"] = rec;
+    } else if (looksGarbled(raw["parameters"])) {
+        const rec = recoverParameters(u8, raw["parameters"]);
+        if (rec) raw["parameters"] = rec;
     }
 
     // Keep raw reference texts for visibility/troubleshooting
@@ -362,14 +364,145 @@ function parseJpeg(u8: Uint8Array): ImageMeta {
     if (raw["parameters"] && looksGarbled(raw["parameters"])) {
         const recovered = scanFileForSdText(u8);
         if (recovered) raw["parameters"] = recovered;
+        else {
+            const whole = scanWholeFileForUtf16A1111(u8) ?? scanWholeFileForSjisA1111(u8);
+            if (whole) raw["parameters"] = whole;
+        }
     }
 
     const fields = normalizeKnownFields(raw);
     return { format: "jpeg", fields, raw };
 }
-// ---- WEBP ---- (may carry XMP/EXIF; minimal for now)
-function parseWebp(_u8: Uint8Array): ImageMeta {
-    return { format: "webp", fields: {}, raw: {} };
+// ---- WEBP ---- (RIFF container; may carry XMP/EXIF)
+function parseWebp(u8: Uint8Array): ImageMeta {
+    const raw: Record<string, string> = {};
+    // RIFF header: 'RIFF' <size LE> 'WEBP'
+    if (u8.length < 12 || u8[0] !== 0x52 || u8[1] !== 0x49 || u8[2] !== 0x46 || u8[3] !== 0x46 ||
+        u8[8] !== 0x57 || u8[9] !== 0x45 || u8[10] !== 0x42 || u8[11] !== 0x50) {
+        return { format: "webp", fields: {}, raw };
+    }
+
+    const u32le = (o: number) => (u8[o] | (u8[o + 1] << 8) | (u8[o + 2] << 16) | (u8[o + 3] << 24)) >>> 0;
+    let off = 12;
+    let exifChunk: Uint8Array | null = null;
+    let xmpXml: string | null = null;
+    while (off + 8 <= u8.length) {
+        const tag0 = u8[off], tag1 = u8[off + 1], tag2 = u8[off + 2], tag3 = u8[off + 3];
+        const size = u32le(off + 4);
+        off += 8;
+        if (off + size > u8.length) break;
+        const data = u8.subarray(off, off + size);
+        // 4CC tags of interest: 'EXIF', 'XMP '
+        const tag = String.fromCharCode(tag0, tag1, tag2, tag3);
+        if (tag === "EXIF") {
+            exifChunk = data;
+        } else if (tag === "XMP ") {
+            try { xmpXml = decodeXmpChunk(data); } catch { /* ignore */ }
+        }
+        // Chunks are even-padded
+        off += size + (size & 1);
+    }
+
+    // Parse EXIF: WebP EXIF payload typically starts at TIFF header, without 'Exif\0\0'.
+    const exifTexts: string[] = [];
+    if (exifChunk && exifChunk.length >= 8) {
+        let payload = exifChunk;
+        const exifHeader = strToU8("Exif\x00\x00");
+        // If missing header, prepend so our JPEG EXIF reader can parse it.
+        if (!startsWith(payload, exifHeader)) {
+            const buf = new Uint8Array(exifHeader.length + payload.length);
+            buf.set(exifHeader, 0); buf.set(payload, exifHeader.length);
+            payload = buf;
+        }
+        try {
+            const multi = extractExifTextsFromBytes(payload);
+            if (multi) {
+                if (multi.user) exifTexts.push(multi.user);
+                if (multi.xp) exifTexts.push(multi.xp);
+                if (multi.desc) exifTexts.push(multi.desc);
+            }
+        } catch { /* ignore */ }
+    }
+
+    // Try to extract A1111/Forge text from available sources
+    const tryTexts: string[] = [];
+    for (const t of exifTexts) tryTexts.push(t);
+    if (xmpXml) {
+        const attrs = extractFromXmpAttributes(xmpXml);
+        tryTexts.push(...attrs);
+        tryTexts.push(xmpXml);
+    }
+
+    const chosen = selectBestParametersFromTexts(tryTexts);
+    if (chosen) raw["parameters"] = chosen;
+    if (!raw["parameters"]) {
+        const rec2 = recoverParameters(u8, null);
+        if (rec2) raw["parameters"] = rec2;
+    } else if (looksGarbled(raw["parameters"])) {
+        const rec2 = recoverParameters(u8, raw["parameters"]);
+        if (rec2) raw["parameters"] = rec2;
+    }
+
+    // Keep raw references
+    if (exifTexts.length) raw["EXIF"] = exifTexts.join("\n");
+    if (xmpXml) raw["XMP"] = xmpXml;
+
+    // parameters may have been recovered already via unified pipeline
+
+    const fields = normalizeKnownFields(raw);
+    return { format: "webp", fields, raw };
+}
+
+// Best-effort decode for XML/text that may be UTF-8 or UTF-16 (LE/BE) with/without BOM
+function decodeXmpChunk(data: Uint8Array): string {
+    if (data.length >= 2) {
+        const b0 = data[0], b1 = data[1];
+        // UTF-8 BOM
+        if (data.length >= 3 && b0 === 0xef && b1 === 0xbb && data[2] === 0xbf) {
+            try { return strFromU8(data.subarray(3)); } catch { /* fallthrough */ }
+        }
+        // UTF-16 BOMs
+        if (b0 === 0xfe && b1 === 0xff) {
+            try { return new TextDecoder("utf-16be").decode(data.subarray(2)); } catch { /* ignore */ }
+        }
+        if (b0 === 0xff && b1 === 0xfe) {
+            try { return new TextDecoder("utf-16le").decode(data.subarray(2)); } catch { /* ignore */ }
+        }
+    }
+    // Heuristic: if many zeros, treat as UTF-16 and guess endianness
+    const zeros = countByte(data, 0x00);
+    if (zeros / Math.max(1, data.length) > 0.2) {
+        // Determine whether low or high bytes are zeros more often
+        let zeroEven = 0, zeroOdd = 0;
+        for (let i = 0; i < data.length; i++) ((i & 1) === 0 ? (data[i] === 0 && (zeroEven++)) : (data[i] === 0 && (zeroOdd++)));
+        const preferLE = zeroOdd >= zeroEven; // in UTF-16LE, odd bytes tend to be zeros for ASCII
+        try {
+            return new TextDecoder(preferLE ? "utf-16le" : "utf-16be").decode(data);
+        } catch { /* ignore */ }
+    }
+    // Last: guess best encoding, but check XML encoding attr if present
+    try {
+        // Try best-of first (may already succeed without knowing encoding attr)
+        let best = decodeBest(data);
+        const probe = best ?? new TextDecoder("utf-8").decode(data);
+        const m = probe.match(/encoding=[\"']([A-Za-z0-9_\-]+)[\"']/i);
+        if (m) {
+            const enc = m[1].toLowerCase();
+            const byAttr = decodeByXmlEncoding(data, enc) ?? best;
+            return byAttr ?? probe;
+        }
+        return best ?? probe;
+    } catch { return ""; }
+}
+function decodeByXmlEncoding(data: Uint8Array, encAttr: string): string | null {
+    try {
+        const enc = encAttr.toLowerCase();
+        if (enc === "utf-8") return new TextDecoder("utf-8").decode(data);
+        if (enc === "utf-16" || enc === "utf-16le") return new TextDecoder("utf-16le").decode(data);
+        if (enc === "utf-16be") return new TextDecoder("utf-16be").decode(data);
+        if (enc === "shift_jis" || enc === "windows-31j" || enc === "sjis") return decodeShiftJIS(data);
+        return null;
+    } catch { return null; }
 }
 
 // ---- Helpers shared by JPEG parsing ----
@@ -384,7 +517,11 @@ function startsWith(a: Uint8Array, b: Uint8Array): boolean {
 }
 function readU32BE(a: Uint8Array, o: number): number { return ((a[o] << 24) | (a[o + 1] << 16) | (a[o + 2] << 8) | a[o + 3]) >>> 0; }
 function tryDecodeUTF8(u: Uint8Array): string | null {
-    try { return strFromU8(u); } catch { return null; }
+    // Use best-of heuristic across common encodings
+    return decodeBest(u);
+}
+function decodeShiftJIS(u: Uint8Array): string | null {
+    try { return new TextDecoder("shift_jis" as any).decode(u); } catch { return null; }
 }
 function safeAscii(u: Uint8Array): string {
     let s = ""; for (let i = 0; i < u.length; i++) { const c = u[i]; if (c < 32 || c > 126) s += "?"; else s += String.fromCharCode(c); }
@@ -403,6 +540,10 @@ function decodeExifUserComment(raw: Uint8Array | string | number[] | undefined |
             const candidates: string[] = [];
             // If UNICODE marker, restrict primarily to UTF-16 variants
             const isUnicode = startsWith(prefix, strToU8("UNICODE"));
+            const isJis = startsWith(prefix, strToU8("JIS"));
+            if (isJis) {
+                const sj = decodeBytes(data, "shift_jis"); if (sj) candidates.push(sj);
+            }
             if (isUnicode) {
                 const le = decodeBytes(data, "utf-16le"); if (le) candidates.push(le);
                 const be = decodeBytes(data, "utf-16be"); if (be) candidates.push(be);
@@ -423,12 +564,14 @@ function decodeExifUserComment(raw: Uint8Array | string | number[] | undefined |
                 tryEnc.push("utf-8", "utf-16le", "utf-16");
             }
             for (const enc of tryEnc) { const s = decodeBytes(data, enc as any); if (s) candidates.push(s); }
-            // Score: prefer strings containing known SD markers or many ASCII
+            // Also try Shift_JIS when not marked unicode
+            if (!isUnicode) { const sj = decodeBytes(data, "shift_jis"); if (sj) candidates.push(sj); }
+            // Score: prefer valid SD markers + plausible decoded script (CJK/Kana), penalize �
             let best: string | null = null; let bestScore = -1;
             for (let s of candidates) {
                 // Strip NULs
                 s = s.replace(/\u0000+/g, ""); if (!s) continue;
-                const score = scoreSdTextCandidate(s);
+                const score = scoreSdTextCandidate(s) + 0.5 * scoreDecodedString(s);
                 if (score > bestScore) { bestScore = score; best = s; }
             }
             if (best) return best;
@@ -465,12 +608,15 @@ function scoreSdTextCandidate(s: string): number {
     if (s.includes("\u0019")) score -= 3;
     return score;
 }
-type TextEncodingName = "utf-8" | "utf-16le" | "utf-16be" | "utf-16" | "latin1";
+type TextEncodingName = "utf-8" | "utf-16le" | "utf-16be" | "utf-16" | "latin1" | "shift_jis";
 function decodeBytes(b: Uint8Array, enc: TextEncodingName): string | null {
     try {
         if (enc === "latin1") {
             let s = ""; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
             return s;
+        }
+        if (enc === "shift_jis") {
+            try { return new TextDecoder("shift_jis" as any).decode(b); } catch { return null; }
         }
         if (enc === "utf-16") {
             // Try LE then BE
@@ -478,6 +624,62 @@ function decodeBytes(b: Uint8Array, enc: TextEncodingName): string | null {
         }
         return new TextDecoder(enc as any).decode(b);
     } catch { return null; }
+}
+
+// Try multiple encodings and pick the one with the best score (fewest replacements, plausible script)
+function decodeBest(data: Uint8Array, prefer?: TextEncodingName): string | null {
+    const candidates: { enc: TextEncodingName; text: string | null; score: number }[] = [];
+    const list: TextEncodingName[] = [];
+    // Heuristic: if bytes look like Shift_JIS pairs, prefer it
+    const sjisLikely = looksLikeShiftJis(data);
+    if (prefer) list.push(prefer);
+    if (sjisLikely && !list.includes("shift_jis")) list.unshift("shift_jis");
+    for (const e of ["utf-8", "utf-16le", "utf-16be", "shift_jis", "latin1"]) {
+        if (!list.includes(e as TextEncodingName)) list.push(e as TextEncodingName);
+    }
+    for (const enc of list) {
+        const s = decodeBytes(data, enc as TextEncodingName);
+        if (s == null) { candidates.push({ enc, text: null, score: -1 }); continue; }
+        const score = scoreDecodedString(s);
+        candidates.push({ enc, text: s, score });
+    }
+    candidates.sort((a,b) => b.score - a.score);
+    return candidates[0]?.text ?? null;
+}
+function scoreDecodedString(s: string): number {
+    if (!s) return -1;
+    let score = 0;
+    // Penalize replacement chars
+    let repl = 0; for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 0xFFFD) repl++;
+    score -= repl * 100;
+    // Count CJK and Kana
+    let cjk = 0, kana = 0, ascii = 0, controls = 0;
+    for (let i = 0; i < s.length; i++) {
+        const c = s.charCodeAt(i);
+        if ((c >= 0x4E00 && c <= 0x9FFF) || (c >= 0x3400 && c <= 0x4DBF)) cjk++;
+        else if ((c >= 0x3040 && c <= 0x30FF) || (c >= 0x31F0 && c <= 0x31FF)) kana++;
+        else if (c >= 32 && c <= 126) ascii++;
+        else if (c < 32 && c !== 9 && c !== 10 && c !== 13) controls++;
+    }
+    score += cjk * 5 + kana * 4 + ascii * 0.3;
+    score -= controls * 5;
+    // Reward presence of common separators (, : ; ) in ascii for parameters text
+    const sepCount = countChar(s, ",") + countChar(s, ":") + countChar(s, ";");
+    score += sepCount * 0.5;
+    return score;
+}
+function looksLikeShiftJis(b: Uint8Array): boolean {
+    let pairs = 0, i = 0;
+    while (i < b.length) {
+        const x = b[i];
+        if ((x >= 0x81 && x <= 0x9f) || (x >= 0xe0 && x <= 0xfc)) {
+            const y = b[i + 1];
+            if (y !== undefined && ((y >= 0x40 && y <= 0x7e) || (y >= 0x80 && y <= 0xfc))) { pairs++; i += 2; continue; }
+        }
+        i++;
+    }
+    const ratio = pairs / Math.max(1, Math.floor(b.length / 2));
+    return ratio > 0.05; // heuristic threshold
 }
 function countByte(u: Uint8Array, v: number): number { let c = 0; for (let i = 0; i < u.length; i++) if (u[i] === v) c++; return c; }
 function countChar(s: string, ch: string): number { let c = 0; for (let i = 0; i < s.length; i++) if (s[i] === ch) c++; return c; }
@@ -555,7 +757,14 @@ function extractExifTextsFromBytes(exif: Uint8Array): { user?: string | null; xp
             const s = decodeBytes(v, "utf-16");
             desc = s ?? null;
         } else {
-            desc = tryDecodeUTF8(v);
+            // Try UTF-8; if it looks broken, fall back to Shift_JIS
+            const utf8 = tryDecodeUTF8(v);
+            if (utf8 && utf8.includes("\uFFFD")) {
+                const sj = decodeShiftJIS(v);
+                desc = sj ?? utf8;
+            } else {
+                desc = utf8;
+            }
         }
     }
     // ExifIFD pointer 0x8769 ⇒ UserComment 0x9286
@@ -640,6 +849,9 @@ function forgeMetadataToParameters(md: any): string | null {
 // Heuristic: detect if a string is mostly non-ASCII (likely mis-decoded)
 function looksGarbled(s: string): boolean {
     if (!s) return false;
+    // If replacement chars or NULs are present at all, treat as garbled
+    if (s.indexOf("\uFFFD") !== -1) return true;
+    if (s.indexOf("\u0000") !== -1) return true;
     const len = s.length;
     let high = 0, alpha = 0;
     for (let i = 0; i < len; i++) {
@@ -825,4 +1037,72 @@ function scanWholeFileForMeta(u8: Uint8Array): string | null {
         }
     }
     return null;
+}
+
+// Decode entire file as UTF-16LE/BE and try to extract a clean A1111 block
+function scanWholeFileForUtf16A1111(u8: Uint8Array): string | null {
+    const variants: { enc: "utf-16le" | "utf-16be"; text: string | null }[] = [];
+    try { variants.push({ enc: "utf-16le", text: new TextDecoder("utf-16le").decode(u8) }); } catch { variants.push({ enc: "utf-16le", text: null }); }
+    try { variants.push({ enc: "utf-16be", text: new TextDecoder("utf-16be").decode(u8) }); } catch { variants.push({ enc: "utf-16be", text: null }); }
+    let best: { text: string; score: number } | null = null;
+    for (const v of variants) {
+        if (!v.text) continue;
+        // Prefer exact Negative prompt block, else fall back to settings line only
+        const blk = extractA1111BlockFromText(v.text) || extractBySettingsLineOnly(v.text);
+        if (!blk) continue;
+        const sc = scoreA1111Block(blk) - (looksGarbled(blk) ? 5 : 0);
+        if (!best || sc > best.score) best = { text: blk, score: sc };
+    }
+    return best?.text ?? null;
+}
+function scanWholeFileForSjisA1111(u8: Uint8Array): string | null {
+    try {
+        const text = new TextDecoder("shift_jis" as any).decode(u8);
+        const blk = extractA1111BlockFromText(text) || extractBySettingsLineOnly(text);
+        return blk ?? null;
+    } catch { return null; }
+}
+
+// Select the best A1111-style parameters block from provided texts
+function selectBestParametersFromTexts(texts: string[]): string | null {
+    let best: { text: string; score: number } | null = null;
+    for (const t of texts) {
+        if (!t) continue;
+        const primary = extractA1111BlockFromText(t);
+        if (primary) {
+            const sc = scoreA1111Block(primary);
+            if (!best || sc > best.score) best = { text: primary, score: sc };
+            continue;
+        }
+        const interp = interpretSdText(t);
+        if (interp) {
+            const blk = extractA1111BlockFromText(interp) || interp;
+            const sc = scoreA1111Block(blk);
+            if (!best || sc > best.score) best = { text: blk, score: sc };
+        }
+    }
+    return best?.text ?? null;
+}
+
+// Unified recovery pipeline when parameters are missing or garbled
+function recoverParameters(u8: Uint8Array, existing: string | null): string | null {
+    if (!existing) {
+        // Absent: try JSON scan, then UTF-16 near Negative prompt, then full UTF-16/Shift_JIS
+        const j = scanWholeFileForMeta(u8); if (j) return j;
+        const near = scanFileForSdText(u8); if (near) return near;
+        const utf16 = scanWholeFileForUtf16A1111(u8); if (utf16) return utf16;
+        const sj = scanWholeFileForSjisA1111(u8); if (sj) return sj;
+        return null;
+    }
+    if (!looksGarbled(existing)) return null;
+    const near = scanFileForSdText(u8); if (near) return near;
+    const utf16 = scanWholeFileForUtf16A1111(u8); if (utf16) return utf16;
+    const sj = scanWholeFileForSjisA1111(u8); if (sj) return sj;
+    return null;
+}
+function extractBySettingsLineOnly(text: string): string | null {
+    const picked = pickSettingsLineWithIndex(text);
+    if (!picked) return null;
+    // Take content from start up to settings line end
+    return text.slice(0, picked.end);
 }
