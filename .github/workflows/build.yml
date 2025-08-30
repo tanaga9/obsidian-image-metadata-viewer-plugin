@@ -104,37 +104,49 @@ jobs:
           cat release/FILES_TO_UPLOAD.txt >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-      - name: Generate Release Notes (manual install guide)
+      - name: Generate Release Notes (BRAT + manual)
         shell: bash
         run: |
           ZIP_PATH="release/${ID}-${VERSION}.zip"
           SHA256=$(sha256sum "$ZIP_PATH" | awk '{print $1}')
           cat > release/RELEASE_NOTES.md << EOF
-          ${NAME} ${VERSION}
+          # ${NAME} ${VERSION}
           
-          Manual Install (without Community plugin browser)
+          ## Installation
           
-          - Requirements: Obsidian ${MIN_APP}+ on Desktop (Windows/macOS/Linux)
-          - Download: ${ID}-${VERSION}.zip from this release
-          - Close Obsidian or disable the plugin before replacing files
-          - Install path: put the extracted files into your Vault at:
+          ### Option 1 — BRAT (recommended)
+          - Install the "BRAT" community plugin.
+          - In BRAT, click "Add Beta plugin" and enter: ${GITHUB_REPOSITORY}
+          - Enable this plugin in Obsidian.
+          
+          ### Option 2 — Manual (ZIP)
+          - Requirements: Obsidian ${MIN_APP}+ on Desktop (Windows/macOS/Linux).
+          - Download: ${ID}-${VERSION}.zip from this release.
+          - Close Obsidian or disable the plugin before replacing files.
+          - Extract and place the files into your vault at:
             - Windows: _(Path to Vault)_ \\\\.obsidian\\plugins\\${ID}
             - macOS/Linux: _(Path to Vault)_ /.obsidian/plugins/${ID}
-          - Final contents inside the folder should be:
-            - manifest.json
-            - main.js
-            - styles.css (if present)
-          - Reopen Obsidian (or re-enable the plugin) and verify under Settings → Community plugins
+          - The plugin folder must contain:
+            - `manifest.json`
+            - `main.js`
+            - `styles.css` (if present)
+          - Restart Obsidian (or re-enable the plugin) and verify under Settings → Community plugins.
           
-          Notes
-          - This release ships only the plugin files (no external network access needed)
-          - SHA-256 (${ID}-${VERSION}.zip):
+          ## Compatibility
+          - Requires Obsidian ${MIN_APP}+.
+          - Supports BRAT auto-updates.
+          
+          ## Assets
+          - This release includes a single ZIP and individual files (`manifest.json`, `main.js`, `styles.css` if present) for BRAT users.
+          
+          ## Checksum
+          - SHA-256 for `${ID}-${VERSION}.zip`:
             ${SHA256}
-          - If updating, replace existing files in the same plugin folder
           
-          Troubleshooting
-          - If the plugin does not appear, confirm the folder name is exactly "${ID}" and that manifest.json is directly inside it
-          - Ensure the app version meets the minimum (${MIN_APP})
+          ## Troubleshooting
+          - Folder name must be exactly "${ID}" and `manifest.json` must be directly inside it.
+          - Ensure the app version meets the minimum (${MIN_APP}).
+          - If it still does not appear, restart Obsidian and re-scan Community plugins.
           EOF
 
       - name: Create GitHub Release (zip + individual assets for BRAT)
