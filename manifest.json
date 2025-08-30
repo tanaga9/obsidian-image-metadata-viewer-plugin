@@ -1,7 +1,7 @@
 {
     "id": "image-metadata-viewer",
     "name": "Image Metadata Viewer",
-    "version": "0.6.0",
+    "version": "0.6.1",
     "minAppVersion": "1.5.0",
     "description": "General image metadata viewer (EXIF, PNG tEXt/iTXt/zTXt) with support for Stable Diffusion (A1111) and ComfyUI parameters.",
     "author": "tanaga9",

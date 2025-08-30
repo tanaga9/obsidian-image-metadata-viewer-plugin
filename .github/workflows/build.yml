@@ -91,6 +91,19 @@ jobs:
             zip -j "release/${ID}-${VERSION}.zip" release/manifest.json release/main.js
           fi
 
+      - name: Prepare file list for Release assets (zip + individual files)
+        shell: bash
+        run: |
+          {
+            echo "release/${ID}-${VERSION}.zip";
+            echo "release/manifest.json";
+            echo "release/main.js";
+            if [ -f release/styles.css ]; then echo "release/styles.css"; fi
+          } > release/FILES_TO_UPLOAD.txt
+          echo "FILES<<EOF" >> $GITHUB_ENV
+          cat release/FILES_TO_UPLOAD.txt >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
       - name: Generate Release Notes (manual install guide)
         shell: bash
         run: |
@@ -124,13 +137,12 @@ jobs:
           - Ensure the app version meets the minimum (${MIN_APP})
           EOF
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (zip + individual assets for BRAT)
         uses: softprops/action-gh-release@v1
         with:
           name: ${{ env.ID }} ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
-          files: |
-            release/*.zip
+          files: ${{ env.FILES }}
           body_path: release/RELEASE_NOTES.md
