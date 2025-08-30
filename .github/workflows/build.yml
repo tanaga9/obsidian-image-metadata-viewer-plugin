@@ -116,7 +116,7 @@ jobs:
           
           ### Option 1 — BRAT (recommended)
           - Install the "BRAT" community plugin.
-          - In BRAT, click "Add Beta plugin" and enter: ${GITHUB_REPOSITORY}
+          - In BRAT, click "Add Beta plugin" and enter the URL of this repository.
           - Enable this plugin in Obsidian.
           
           ### Option 2 — Manual (ZIP)
@@ -127,9 +127,9 @@ jobs:
             - Windows: _(Path to Vault)_ \\\\.obsidian\\plugins\\${ID}
             - macOS/Linux: _(Path to Vault)_ /.obsidian/plugins/${ID}
           - The plugin folder must contain:
-            - `manifest.json`
-            - `main.js`
-            - `styles.css` (if present)
+            - manifest.json
+            - main.js
+            - styles.css (if present)
           - Restart Obsidian (or re-enable the plugin) and verify under Settings → Community plugins.
           
           ## Compatibility
@@ -137,16 +137,12 @@ jobs:
           - Supports BRAT auto-updates.
           
           ## Assets
-          - This release includes a single ZIP and individual files (`manifest.json`, `main.js`, `styles.css` if present) for BRAT users.
+          - This release includes a single ZIP and individual files (manifest.json, main.js, styles.css if present) for BRAT users.
           
           ## Checksum
-          - SHA-256 for `${ID}-${VERSION}.zip`:
+          - SHA-256 for ${ID}-${VERSION}.zip:
             ${SHA256}
           
-          ## Troubleshooting
-          - Folder name must be exactly "${ID}" and `manifest.json` must be directly inside it.
-          - Ensure the app version meets the minimum (${MIN_APP}).
-          - If it still does not appear, restart Obsidian and re-scan Community plugins.
           EOF
 
       - name: Create GitHub Release (zip + individual assets for BRAT)
