@@ -99,6 +99,9 @@ WebP images store metadata in RIFF chunks.
 - The payload starts directly at the TIFF header (e.g., `II*` or `MM*`) without the `Exif\x00\x00` prefix.
 - When using a JPEG-style EXIF parser, the `Exif\x00\x00` prefix must be prepended.
 - Extracts `UserComment`, `ImageDescription`, and XP* tags using the same decoding heuristics as JPEG.
+- Also reads IFD0 `Make` and `Model` text tags because ComfyUI `SaveAnimatedWEBP` stores raw JSON metadata there:
+  - `Model` (`0x0110`) may contain `prompt:<json>`.
+  - `Make` (`0x010f`) may contain `workflow:<json>`.
 
 ### XMP
 
@@ -151,6 +154,7 @@ Some tools or forks embed JSON metadata similar to `sd-metadata` or `sd_metadata
 ComfyUI embeds metadata differently and requires special handling:
 
 - Saves JSON strings into PNG metadata under the key `prompt` (always) and additional keys from `extra_pnginfo` (commonly `workflow`), all as JSON strings.
+- Saves JSON strings into WebP EXIF when using standard `SaveAnimatedWEBP`: `prompt:<json>` in IFD0 `Model` (`0x0110`) and `workflow:<json>` in IFD0 `Make` (`0x010f`).
 - Searches for graphs in any `*_json` values resembling ComfyUI prompt or workflow structures.
 - Picks a sampler node (`KSampler*`) and reads inputs such as `seed`, `steps`, `cfg` (mapped to `cfg_scale`), `sampler_name`, `scheduler`, and `denoise`.
 - Resolves positive and negative prompts from connected CLIP encode nodes (`text`, `text_g`, `text_l`).
@@ -232,6 +236,7 @@ Normalization organizes extracted data into a consistent structure:
 ## Implementation Notes
 
 - WebP EXIF chunks often omit the `Exif\x00\x00` header; prepend it when using a JPEG-style EXIF parser.
+- WebP EXIF parsing should include IFD0 `Make` and `Model` in addition to `UserComment`, `ImageDescription`, and XP* tags so ComfyUI `SaveAnimatedWEBP` metadata is detected.
 - XP* tags may be exposed as arrays of numbers representing UTF-16LE; convert these to bytes and decode accordingly.
 - Extended XMP requires reassembly by GUID with `total` and `offset` bookkeeping before UTF decoding.
 - Do not mix sources: extract a single coherent A1111 block from one source rather than concatenating across multiple sources.

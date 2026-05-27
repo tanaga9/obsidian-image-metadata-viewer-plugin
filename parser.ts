@@ -417,6 +417,10 @@ function parseWebp(u8: Uint8Array): ImageMeta {
         try {
             const multi = extractExifTextsFromBytes(payload);
             if (multi) {
+                const comfyPrompt = stripPrefixedValue(multi.model, "prompt:");
+                const comfyWorkflow = stripPrefixedValue(multi.make, "workflow:");
+                if (comfyPrompt) raw["prompt"] = comfyPrompt;
+                if (comfyWorkflow) raw["workflow"] = comfyWorkflow;
                 if (multi.user) exifTexts.push(multi.user);
                 if (multi.xp) exifTexts.push(multi.xp);
                 if (multi.desc) exifTexts.push(multi.desc);
@@ -702,8 +706,8 @@ function maybeFixUtf16EndianMisdecode(s: string | null): string | null {
     return s;
 }
 
-// Extract textish fields from EXIF bytes (APP1) → select UserComment/XPComment/ImageDescription
-function extractExifTextsFromBytes(exif: Uint8Array): { user?: string | null; xp?: string | null; desc?: string | null } {
+// Extract textish fields from EXIF bytes (APP1) → select UserComment/XPComment/ImageDescription and IFD0 text tags.
+function extractExifTextsFromBytes(exif: Uint8Array): { user?: string | null; xp?: string | null; desc?: string | null; make?: string | null; model?: string | null } {
     if (!startsWith(exif, strToU8("Exif\x00\x00"))) return null;
     const data = exif; const base = 6;
     if (data.length < base + 8) return null;
@@ -744,10 +748,9 @@ function extractExifTextsFromBytes(exif: Uint8Array): { user?: string | null; xp
     }
 
     const { tags: tags0 } = readIFD(ifd0);
-    // ImageDescription 0x010E
-    let desc: string | null = null;
-    if (tags0[0x010e]) {
-        const vb = tags0[0x010e][2];
+    const decodeIfd0Text = (tag: number): string | null => {
+        if (!tags0[tag]) return null;
+        const vb = tags0[tag][2];
         let v = vb;
         // trim trailing NULs
         while (v.length && v[v.length - 1] === 0) v = v.subarray(0, v.length - 1);
@@ -755,18 +758,24 @@ function extractExifTextsFromBytes(exif: Uint8Array): { user?: string | null; xp
         const utf16 = (v.length >= 2 && ((v[0] === 0xff && v[1] === 0xfe) || (v[0] === 0xfe && v[1] === 0xff))) || (v.length && (countByte(v, 0x00) / v.length) > 0.2);
         if (utf16) {
             const s = decodeBytes(v, "utf-16");
-            desc = s ?? null;
+            return s ?? null;
         } else {
             // Try UTF-8; if it looks broken, fall back to Shift_JIS
-            const utf8 = tryDecodeUTF8(v);
+            let utf8: string | null = null;
+            try { utf8 = new TextDecoder("utf-8").decode(v); } catch { utf8 = null; }
             if (utf8 && utf8.includes("\uFFFD")) {
                 const sj = decodeShiftJIS(v);
-                desc = sj ?? utf8;
+                return sj ?? utf8;
             } else {
-                desc = utf8;
+                return utf8;
             }
         }
-    }
+    };
+
+    // ImageDescription 0x010E, Make 0x010F, Model 0x0110
+    let desc: string | null = decodeIfd0Text(0x010e);
+    let make: string | null = decodeIfd0Text(0x010f);
+    let model: string | null = decodeIfd0Text(0x0110);
     // ExifIFD pointer 0x8769 ⇒ UserComment 0x9286
     let user: string | null = null;
     if (tags0[0x8769]) {
@@ -788,9 +797,19 @@ function extractExifTextsFromBytes(exif: Uint8Array): { user?: string | null; xp
         }
     }
     if (typeof desc === "string") desc = maybeFixUtf16EndianMisdecode(desc);
+    if (typeof make === "string") make = maybeFixUtf16EndianMisdecode(make);
+    if (typeof model === "string") model = maybeFixUtf16EndianMisdecode(model);
     if (typeof user === "string") user = maybeFixUtf16EndianMisdecode(user);
     if (typeof xp === "string") xp = maybeFixUtf16EndianMisdecode(xp);
-    return { user, xp, desc };
+    return { user, xp, desc, make, model };
+}
+
+function stripPrefixedValue(value: string | null | undefined, prefix: string): string | null {
+    if (typeof value !== "string") return null;
+    if (value.startsWith(prefix)) return value.slice(prefix.length);
+    const upperPrefix = prefix.charAt(0).toUpperCase() + prefix.slice(1);
+    if (value.startsWith(upperPrefix)) return value.slice(upperPrefix.length);
+    return null;
 }
 
 // Try to recognize Stable Diffusion parameters text or Forge JSON, convert to A1111 style text
