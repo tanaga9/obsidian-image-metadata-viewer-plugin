@@ -35,7 +35,7 @@ Minimum app version is defined in `manifest.json` (`minAppVersion`, currently 1.
 ## Parser Overview
 This plugin parses metadata from PNG, JPEG, and WEBP, then normalizes common AI‑generation parameters (A1111/ComfyUI) into readable fields.
 
-- Formats: PNG (`tEXt`/`iTXt`/`zTXt`), JPEG (EXIF/XMP/COM), WEBP (basic EXIF/XMP).
+- Formats: PNG (`tEXt`/`iTXt`/`zTXt`), JPEG (EXIF/XMP/COM), WEBP (EXIF/XMP).
 - A1111: extracts the original multi‑line parameters block intact for easy copying.
 - ComfyUI: detects prompt/workflow JSON, exposes prompt fields and pretty‑prints JSON with Copy/Export.
 - Text decoding prioritizes preserving original content across encodings.
@@ -58,7 +58,7 @@ For complete heuristics, edge cases, and format‑specific details, see [image-m
   - `rollup.config.mjs`: build config
 
 ## Limitations / Future Work
-- WEBP: EXIF/XMP extraction can be extended further
+- WEBP: supports EXIF/XMP metadata
 - Additional label aliases (non‑English) for settings detection may be added
 - No sample images included; test with your own files
 
