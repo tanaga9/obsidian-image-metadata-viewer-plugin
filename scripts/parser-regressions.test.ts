@@ -137,13 +137,17 @@ function testPrefixlessUtf16UserComment() {
     });
 }
 
-async function testJisUserCommentWithWindowsExtension() {
+async function testJisUserCommentEncodings() {
     const settings = "\nNegative prompt: blur\nSteps: 20, Sampler: Euler";
-    // CP932 encodes 髙 as FB FC.
-    const comment = concat(encoder.encode("JIS\0\0\0\0\0"), Uint8Array.of(0xfb, 0xfc), encoder.encode(settings));
-    const jpeg = jpegWithUserComment(comment);
-    const metadata = await parseImageMeta(asArrayBuffer(jpeg), "jpg");
-    assertEqual(metadata.raw.parameters, "髙" + settings);
+    const prefix = encoder.encode("JIS\0\0\0\0\0");
+    for (const [promptBytes, prompt] of [
+        [Uint8Array.of(0xfb, 0xfc), "髙"],
+        [encoder.encode("猫"), "猫"],
+    ] as const) {
+        const comment = concat(prefix, promptBytes, encoder.encode(settings));
+        const metadata = await parseImageMeta(asArrayBuffer(jpegWithUserComment(comment)), "jpg");
+        assertEqual(metadata.raw.parameters, prompt + settings);
+    }
 }
 
 async function testJpegExifTakesPriorityOverHigherScoringXmp() {
@@ -187,7 +191,7 @@ function main() {
         .then(() => testInlineXmpDoesNotReturnXmlMarkup())
         .then(() => testJpegXmpBodyOutranksPromptGuess())
         .then(() => testPrefixlessUtf16UserComment())
-        .then(() => testJisUserCommentWithWindowsExtension())
+        .then(() => testJisUserCommentEncodings())
         .then(() => testJpegExifTakesPriorityOverHigherScoringXmp())
         .then(() => testJpegCommentPriority());
 }

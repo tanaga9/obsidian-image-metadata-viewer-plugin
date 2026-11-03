@@ -192,7 +192,7 @@ Decoding metadata requires heuristics to handle various encodings:
 
 - **UserComment Prefix**: The first 8 bytes indicate encoding (`ASCII`, `UNICODE`, `JIS`), guiding initial decoding attempts:
   - `UNICODE` suggests UTF-16LE or UTF-16BE.
-  - For a `JIS` prefix, use strict `shift_jis` decoding. If decoding fails or the text is empty or contains embedded NULs, score the fallback candidates. In `TextDecoder`, `ms932` and `windows-31j` are labels for the same decoder, which reads Windows extensions such as 髙 (`FB FC`).
+  - For a `JIS` prefix, try strict `shift_jis` decoding. Accept nonempty text without embedded NULs directly when strict UTF-8 decoding fails. Otherwise, score the fallback candidates so mislabeled UTF-8 can still be recovered. In `TextDecoder`, `ms932` and `windows-31j` are labels for the same decoder, which reads Windows extensions such as 髙 (`FB FC`).
 - **UTF-16 Likelihood**: Counts of NUL bytes in even or odd positions help decide between UTF-16LE and UTF-16BE.
 - **XMP Decoding**:
   - Decode the packet before XML or attribute extraction. Honor UTF-8, UTF-16LE, and UTF-16BE Byte Order Marks (BOMs), removing the BOM from the decoded text.

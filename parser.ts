@@ -556,7 +556,15 @@ function decodeExifUserComment(raw: Uint8Array | string | number[] | undefined |
                 try {
                     const text = new TextDecoder("shift_jis", { fatal: true })
                         .decode(data).replace(/\u0000+$/g, "");
-                    if (text && !text.includes("\u0000")) return text;
+                    if (text && !text.includes("\u0000")) {
+                        // A mislabeled UTF-8 comment can also be valid Shift_JIS.
+                        try {
+                            new TextDecoder("utf-8", { fatal: true }).decode(data);
+                            candidates.push(text);
+                        } catch {
+                            return text;
+                        }
+                    }
                 } catch { /* Try the fallback decoders for invalid Shift_JIS. */ }
             }
             if (isUnicode) {
