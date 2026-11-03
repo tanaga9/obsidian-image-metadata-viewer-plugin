@@ -39,6 +39,8 @@ PNG metadata is stored in text chunks such as `tEXt`, `zTXt`, and `iTXt`. The pa
 - Other recognized keys include `prompt`, `negative_prompt`, `Prompt`, and `Negative prompt`. Raw values are stored, and if a value resembles JSON (`{...}` or `[...]`), it is parsed into a corresponding `key_json` field.
 - ComfyUI information is integrated into the fields (see ComfyUI Extraction section).
 
+Note: Do not rely solely on high-level library metadata maps for PNG text, as they may auto-decode as UTF-8 and lose Latin-1 fidelity or skip compressed text. Parse PNG chunks directly and decode according to the spec (tEXt/zTXt = Latin-1, iTXt = UTF-8; decompress when required).
+
 ### Encoding
 
 - `tEXt` and `zTXt` chunks use Latin-1 encoding.
@@ -56,12 +58,25 @@ The parser walks through JPEG markers until the Start of Scan (SOS) or End of Im
 - `APP1` segments, which may contain EXIF or XMP data.
 - `COM` segments, which contain JPEG comments.
 
+### Priority and Pitfalls
+
+- JPEG selects the best-scoring candidate within the first source that yields parameters:
+  1) EXIF-derived texts (UserComment, XP*, ImageDescription)
+  2) XMP attribute values (e.g., parameters, sd-metadata)
+  3) Inline XMP text snippets
+  4) JPEG Comment
+- If no source yields recognizable generation parameters, prompt guessing tries EXIF text, XMP attribute values, and JPEG comments in that order.
+- Do not treat the entire XMP packet as text before trying attributes/snippets; only extract a snippet if an A1111-like block is clearly present.
+- Avoid relying on high-level library XMP convenience fields for JPEG precedence or completeness:
+  - It may surface XMP earlier than EXIF and cause priority inversions.
+  - It may not include Extended XMP chunks. Prefer an APP1 scan that reassembles Extended XMP by GUID.
+
 ### EXIF
 
 EXIF metadata extraction focuses on textual fields:
 
 - Extracts texts from `UserComment`, `ImageDescription`, and XP* tags such as `XPComment` and `XPTitle`.
-- `UserComment` may contain ASCII, Unicode, or JIS encodings. The first 8 bytes specify the encoding type (`ASCII\0\0\0`, `UNICODE\0`, or `JIS\0\0\0`). This prefix is dropped, and the remainder is decoded accordingly.
+- `UserComment` may contain ASCII, Unicode, or JIS encodings. A conforming value normally starts with an 8-byte encoding prefix (`ASCII\0\0\0`, `UNICODE\0`, or `JIS\0\0\0`). Drop those bytes only when a recognized prefix is actually present. Some writers omit the prefix and store UTF-16 directly; in that case, preserve the full byte sequence and infer UTF-16 from a BOM or even/odd NUL-byte distribution.
 - `ImageDescription` is ASCII only; multi-byte text should be stored in `UserComment`.
 - XP* tags are stored as UCS-2/UTF-16LE. Some libraries expose these as arrays of 16-bit numbers; these must be reassembled and decoded as UTF-16LE.
 
@@ -69,6 +84,7 @@ EXIF metadata extraction focuses on textual fields:
 
 - Supports standard XMP and Extended XMP across multiple APP1 segments.
 - Extended XMP chunks are reassembled by GUID with total and offset bookkeeping before decoding into one XML string.
+- For JPEG, prefer scanning APP1 segments directly over using high-level library XMP fields to avoid missing Extended XMP and to preserve EXIF-first priority.
 
 ### JPEG Comment
 
@@ -81,6 +97,7 @@ EXIF metadata extraction focuses on textual fields:
   - `ASCII` prefix → ASCII decoding.
   - `UNICODE` prefix → UTF-16LE or UTF-16BE decoding.
   - `JIS` prefix → Shift_JIS decoding.
+  - No recognized prefix → do not discard the first 8 bytes; check for a UTF-16 BOM or a strong UTF-16 NUL-byte pattern before using general best-effort decoding.
 - XP* tags are decoded as UTF-16LE.
 - Best-effort decoding is applied for JPEG Comments.
 
@@ -111,10 +128,9 @@ WebP images store metadata in RIFF chunks.
 
 ### Priority
 
-- EXIF-derived texts have the highest priority.
-- Followed by XMP attribute values.
-- Then XMP full text.
-- Finally, fallback recovery scans are applied.
+- EXIF-derived texts, XMP attribute values, and an inline XMP snippet are collected in that order.
+- The highest-scoring candidate wins. Collection order breaks ties.
+- Recovery scans run when the selected parameters are missing or appear garbled.
 
 ### Encoding
 
@@ -129,13 +145,13 @@ XMP metadata is extracted and interpreted with the following considerations:
   - Extract attribute values for keys such as `sd-metadata`, `sd_metadata`, `parameters`, and `Parameters` from the XML.
   - HTML-unescape entities like `&quot;`, `&amp;`, etc.
 - Text Extraction:
-  - If no attribute value is present, the entire XML content is considered as a candidate text source.
+  - Extract an A1111-like snippet from the XML when one is found. JPEG uses this candidate if EXIF and XMP attributes yield no parameters. WebP scores the snippet alongside its other candidates. The full packet remains available as raw XMP.
 
 ## A1111 Block Extraction
 
 A1111-style metadata blocks are identified and extracted as follows:
 
-- Look for the marker `Negative prompt:` followed by a settings line starting with known keys such as `Steps:`, `Sampler:`, `CFG scale:`, `Seed:`, `Size:`, or `Model:`.
+- Look for the marker `Negative prompt:` followed by a settings line starting with known keys such as `Steps:`, `Sampler:`, `Schedule type:`, `CFG scale:`, `Seed:`, `Size:`, `Model:`, `Denoising strength:`, or `Hires steps:`.
 - Extract the original substring from the beginning (prompt) through the first settings line, preserving whitespace and newlines.
 - Score candidates based on marker presence and reasonable length.
 - Select the best-scoring block.
@@ -179,8 +195,9 @@ Decoding metadata requires heuristics to handle various encodings:
   - `JIS` suggests MS932 (a Microsoft variant of Shift_JIS), so attempt MS932 decoding first, falling back to generic Shift_JIS if needed.
 - **UTF-16 Likelihood**: Counts of NUL bytes in even or odd positions help decide between UTF-16LE and UTF-16BE.
 - **XMP Decoding**:
-  - Honor Byte Order Marks (BOMs) for UTF-8 and UTF-16.
-  - Without BOM, choose between `utf-16le` and `utf-16be` based on zero distribution.
+  - Decode the packet before XML or attribute extraction. Honor UTF-8, UTF-16LE, and UTF-16BE Byte Order Marks (BOMs), removing the BOM from the decoded text.
+  - Without BOM, treat a strong NUL-byte pattern as UTF-16 and choose between `utf-16le` and `utf-16be` from even/odd zero distribution.
+  - Otherwise, accept a packet that passes strict UTF-8 decoding before trying Shift_JIS or general scoring; valid Japanese UTF-8 byte sequences can otherwise be misclassified.
   - Fall back to best-of decoding and consider XML `encoding="..."` attributes.
 - **Best-Of Decoder**:
   - Attempts multiple encodings: `utf-8`, `utf-16le`, `utf-16be`, `shift_jis`, and `latin1`.
@@ -189,6 +206,9 @@ Decoding metadata requires heuristics to handle various encodings:
 ## Recovery Heuristics
 
 When standard extraction fails, recovery heuristics attempt to locate metadata:
+
+- Run format-aware parsing first. Recovery scans are gated fallbacks, not a substitute for PNG chunk, JPEG APP1/COM, WebP RIFF, EXIF, or XMP parsing.
+- Whole-file decoding is expensive and can produce false positives from image data. Apply it only after structured candidates fail validation.
 
 - **Targeted UTF-16 Scan**:
   - Searches file bytes for UTF-16LE/BE encoded `Negative prompt:` strings.
@@ -203,9 +223,9 @@ When standard extraction fails, recovery heuristics attempt to locate metadata:
 
 ## Selection Strategy
 
-The extraction process prioritizes sources to obtain a coherent and self-contained metadata block:
+JPEG selects a coherent metadata block using source priority. WebP scores its candidates together, with collection order breaking ties.
 
-- Preference order:
+- JPEG source order:
   1. Exact, self-contained blocks from structured sources (EXIF `UserComment`, XP*, `ImageDescription`).
   2. Attribute values in XMP.
   3. Inline XMP XML text.
@@ -238,6 +258,8 @@ Normalization organizes extracted data into a consistent structure:
 - WebP EXIF chunks often omit the `Exif\x00\x00` header; prepend it when using a JPEG-style EXIF parser.
 - WebP EXIF parsing should include IFD0 `Make` and `Model` in addition to `UserComment`, `ImageDescription`, and XP* tags so ComfyUI `SaveAnimatedWEBP` metadata is detected.
 - XP* tags may be exposed as arrays of numbers representing UTF-16LE; convert these to bytes and decode accordingly.
+- For `UserComment`, remove the 8-byte encoding designator only after matching a known designator. Prefixless UTF-16 is a real-world compatibility case and must be decoded from the complete value.
+- Decode XMP bytes with BOM-aware UTF-8/UTF-16 handling before parsing XML; BOM-less UTF-16 requires byte-position heuristics.
 - Extended XMP requires reassembly by GUID with `total` and `offset` bookkeeping before UTF decoding.
 - Do not mix sources: extract a single coherent A1111 block from one source rather than concatenating across multiple sources.
 
