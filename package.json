@@ -6,7 +6,8 @@
   "license": "MIT",
     "scripts": {
         "dev": "rollup -c -w",
-        "build": "rollup -c"
+        "build": "rollup -c",
+        "test": "tsc -p tsconfig.test.json && node dist-test/scripts/parser-regressions.test.js"
     },
     "devDependencies": {
         "@rollup/plugin-commonjs": "^25.0.8",

@@ -154,7 +154,6 @@ function normalizeKnownFields(raw: Record<string, string>): Record<string, unkno
 }
 
 // ---- Common markers (A1111) ----
-const NEGATIVE_PROMPT_LABEL = "Negative prompt:";
 const NEGATIVE_PROMPT_RE = /(^|[\r\n])[\t ]*Negative prompt:/i;
 const SETTINGS_STEPS_RE = /^[\t ]*Steps:[^\n]*/mi;
 const SETTINGS_ANY_RE = /^[\t ]*(Sampler:|CFG scale:|Seed:|Size:|Model:|Schedule type:|Denoising strength:|Hires steps:)[^\n]*/mi;
@@ -263,7 +262,7 @@ function parseJpeg(u8: Uint8Array): ImageMeta {
     // XMP (standard + extended) accumulators
     const XMP_STD = strToU8("http://ns.adobe.com/xap/1.0\x00");
     const XMP_EXT = strToU8("http://ns.adobe.com/xmp/extension/\x00");
-    const xmpMain: string[] = [];
+    const xmpMain: Uint8Array[] = [];
     const xmpExt: Record<string, { total: number; chunks: Record<number, Uint8Array> }> = {};
 
     // Iterate segments until SOS (0xDA) or EOI (0xD9)
@@ -287,7 +286,7 @@ function parseJpeg(u8: Uint8Array): ImageMeta {
                 exifBytes = seg;
             } else if (startsWith(seg, XMP_STD)) {
                 const xmlBytes = seg.subarray(XMP_STD.length);
-                try { xmpMain.push(strFromU8(xmlBytes)); } catch { /* ignore */ }
+                xmpMain.push(xmlBytes);
             } else if (startsWith(seg, XMP_EXT)) {
                 const rest = seg.subarray(XMP_EXT.length);
                 if (rest.length >= 40) {
@@ -330,22 +329,21 @@ function parseJpeg(u8: Uint8Array): ImageMeta {
             const buf = new Uint8Array(bufLen);
             let p = 0; for (const o of offsets) { buf.set(info.chunks[o], p); p += info.chunks[o].length; }
             const total = Math.min(info.total, buf.length);
-            try { extXml += strFromU8(buf.subarray(0, total)); } catch { /* ignore */ }
+            try { extXml += decodeXmpChunk(buf.subarray(0, total)); } catch { /* ignore */ }
         }
-        xmpXml = xmpMain.join("") + extXml;
+        xmpXml = xmpMain.map((data) => decodeXmpChunk(data)).join("") + extXml;
     }
 
-    // Preferred extraction order: precise A1111 block from EXIF → XMP attrs → XMP text → JPEG comment
-    const tryTexts: string[] = [];
-    for (const t of exifTexts) tryTexts.push(t);
-    if (xmpXml) {
-        const attrs = extractFromXmpAttributes(xmpXml);
-        tryTexts.push(...attrs);
-        tryTexts.push(xmpXml);
-    }
-    if (jpegComment) tryTexts.push(jpegComment);
-
-    const selected = selectBestParametersFromTexts(tryTexts);
+    // Score candidates within each source, preserving JPEG source priority.
+    const xmpAttributes = xmpXml ? extractFromXmpAttributes(xmpXml) : [];
+    const jpegComments = jpegComment ? [jpegComment] : [];
+    const selected = selectBestParametersFromTexts(exifTexts, false)
+        ?? selectBestParametersFromTexts(xmpAttributes, false)
+        ?? (xmpXml ? extractA1111BlockFromXmpText(xmpXml) : null)
+        ?? selectBestParametersFromTexts(jpegComments, false)
+        ?? selectBestParametersFromTexts(exifTexts)
+        ?? selectBestParametersFromTexts(xmpAttributes)
+        ?? selectBestParametersFromTexts(jpegComments);
     if (selected) raw["parameters"] = selected;
     if (!raw["parameters"]) {
         const rec = recoverParameters(u8, null);
@@ -434,7 +432,8 @@ function parseWebp(u8: Uint8Array): ImageMeta {
     if (xmpXml) {
         const attrs = extractFromXmpAttributes(xmpXml);
         tryTexts.push(...attrs);
-        tryTexts.push(xmpXml);
+        const inline = extractA1111BlockFromXmpText(xmpXml);
+        if (inline) tryTexts.push(inline);
     }
 
     const chosen = selectBestParametersFromTexts(tryTexts);
@@ -484,6 +483,11 @@ function decodeXmpChunk(data: Uint8Array): string {
             return new TextDecoder(preferLE ? "utf-16le" : "utf-16be").decode(data);
         } catch { /* ignore */ }
     }
+    // XMP defaults to UTF-8. Prefer it when the complete packet is valid UTF-8
+    // so Japanese UTF-8 bytes are not misclassified as Shift_JIS by heuristics.
+    try {
+        return new TextDecoder("utf-8", { fatal: true }).decode(data);
+    } catch { /* fall through to declared or best-effort encodings */ }
     // Last: guess best encoding, but check XML encoding attr if present
     try {
         // Try best-of first (may already succeed without knowing encoding attr)
@@ -521,7 +525,10 @@ function startsWith(a: Uint8Array, b: Uint8Array): boolean {
 }
 function readU32BE(a: Uint8Array, o: number): number { return ((a[o] << 24) | (a[o + 1] << 16) | (a[o + 2] << 8) | a[o + 3]) >>> 0; }
 function tryDecodeUTF8(u: Uint8Array): string | null {
-    // Use best-of heuristic across common encodings
+    // Plain ASCII comments are unambiguous unless they contain UTF-16 NUL bytes.
+    if (u.every((byte) => byte > 0 && byte < 0x80)) {
+        return new TextDecoder("utf-8").decode(u);
+    }
     return decodeBest(u);
 }
 function decodeShiftJIS(u: Uint8Array): string | null {
@@ -546,7 +553,19 @@ function decodeExifUserComment(raw: Uint8Array | string | number[] | undefined |
             const isUnicode = startsWith(prefix, strToU8("UNICODE"));
             const isJis = startsWith(prefix, strToU8("JIS"));
             if (isJis) {
-                const sj = decodeBytes(data, "shift_jis"); if (sj) candidates.push(sj);
+                try {
+                    const text = new TextDecoder("shift_jis", { fatal: true })
+                        .decode(data).replace(/\u0000+$/g, "");
+                    if (text && !text.includes("\u0000")) {
+                        // A mislabeled UTF-8 comment can also be valid Shift_JIS.
+                        try {
+                            new TextDecoder("utf-8", { fatal: true }).decode(data);
+                            candidates.push(text);
+                        } catch {
+                            return text;
+                        }
+                    }
+                } catch { /* Try the fallback decoders for invalid Shift_JIS. */ }
             }
             if (isUnicode) {
                 const le = decodeBytes(data, "utf-16le"); if (le) candidates.push(le);
@@ -813,7 +832,7 @@ function stripPrefixedValue(value: string | null | undefined, prefix: string): s
 }
 
 // Try to recognize Stable Diffusion parameters text or Forge JSON, convert to A1111 style text
-function interpretSdText(text: string | null): string | null {
+function interpretSdText(text: string | null, allowPromptGuess: boolean): string | null {
     if (!text) return null;
     const fixed = maybeFixUtf16EndianMisdecode(text) ?? text;
     const obj = tryParseJsonPayload(fixed);
@@ -824,7 +843,7 @@ function interpretSdText(text: string | null): string | null {
     }
     if (NEGATIVE_PROMPT_RE.test(fixed) || HAS_STEPS_RE.test(fixed)) return fixed;
     // Heuristic: long comma-separated positive prompt
-    if ((fixed.match(/,/g) || []).length >= 2 || fixed.length > 80) return fixed;
+    if (allowPromptGuess && ((fixed.match(/,/g) || []).length >= 2 || fixed.length > 80)) return fixed;
     return null;
 }
 
@@ -999,19 +1018,43 @@ function scoreA1111Block(s: string): number {
 // Extract potential sd-metadata/parameters strings from XMP XML attributes
 function extractFromXmpAttributes(xml: string): string[] {
     const out: string[] = [];
-    const keys = ["sd-metadata", "sd_metadata", "parameters", "Parameters"];
-    for (const key of keys) {
-        const re = new RegExp(key + "\\s*=\\s*([\"'])(.*?)\\1", "is");
-        const m = xml.match(re);
-        if (m && m[2]) {
-            const val = htmlUnescape(m[2]);
-            out.push(val);
+    const keys = new Set(["sd-metadata", "sd_metadata", "parameters"]);
+    const tags = /<!--[^]*?-->|<!\[CDATA\[[^]*?\]\]>|<[\w:.-]+((?:[^<>"']|"[^"]*"|'[^']*')*)>/g;
+    let tag: RegExpExecArray | null;
+    while ((tag = tags.exec(xml)) !== null) {
+        if (!tag[1]) continue;
+        const attributes = /\s+([\w:.-]+)\s*=\s*(["'])([^]*?)\2/g;
+        let attribute: RegExpExecArray | null;
+        while ((attribute = attributes.exec(tag[1])) !== null) {
+            const name = attribute[1].slice(attribute[1].lastIndexOf(":") + 1).toLowerCase();
+            if (keys.has(name) && attribute[3]) out.push(decodeXmlReferences(attribute[3]));
         }
     }
     return out;
 }
-function htmlUnescape(s: string): string {
-    return s.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+function extractA1111BlockFromXmpText(xml: string): string | null {
+    // Consume markup as a unit so quoted attributes cannot become text candidates.
+    const tokens = /<!--[^]*?-->|<!\[CDATA\[([^]*?)\]\]>|<(?:[^<>"']|"[^"]*"|'[^']*')*>|([^<]+)/g;
+    const candidates: string[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = tokens.exec(xml)) !== null) {
+        const text = match[1] ?? decodeXmlReferences(match[2] ?? "");
+        if (text.trim()) candidates.push(text.trim());
+    }
+    return selectBestParametersFromTexts(candidates, false);
+}
+function decodeXmlReferences(s: string): string {
+    const named: Record<string, string> = { quot: '"', apos: "'", amp: "&", lt: "<", gt: ">" };
+    return s.replace(/&(quot|apos|amp|lt|gt|#([0-9]+)|#x([0-9a-fA-F]+));/g,
+        (reference, name: string, decimal?: string, hex?: string) => {
+            if (decimal === undefined && hex === undefined) return named[name];
+            const code = hex === undefined ? Number(decimal) : parseInt(hex, 16);
+            const valid = code === 9 || code === 10 || code === 13
+                || (code >= 0x20 && code <= 0xd7ff)
+                || (code >= 0xe000 && code <= 0xfffd)
+                || (code >= 0x10000 && code <= 0x10ffff);
+            return valid ? String.fromCodePoint(code) : reference;
+        });
 }
 
 // Scan entire file bytes for embedded JSON (sd-metadata) or parameters text
@@ -1083,7 +1126,7 @@ function scanWholeFileForSjisA1111(u8: Uint8Array): string | null {
 }
 
 // Select the best A1111-style parameters block from provided texts
-function selectBestParametersFromTexts(texts: string[]): string | null {
+function selectBestParametersFromTexts(texts: string[], allowPromptGuess = true): string | null {
     let best: { text: string; score: number } | null = null;
     for (const t of texts) {
         if (!t) continue;
@@ -1093,7 +1136,7 @@ function selectBestParametersFromTexts(texts: string[]): string | null {
             if (!best || sc > best.score) best = { text: primary, score: sc };
             continue;
         }
-        const interp = interpretSdText(t);
+        const interp = interpretSdText(t, allowPromptGuess);
         if (interp) {
             const blk = extractA1111BlockFromText(interp) || interp;
             const sc = scoreA1111Block(blk);

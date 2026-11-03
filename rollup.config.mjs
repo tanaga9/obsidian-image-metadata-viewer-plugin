@@ -9,5 +9,13 @@ export default {
         format: "cjs"
     },
     external: ["obsidian"],
-    plugins: [nodeResolve({ browser: true }), commonjs(), typescript()]
+    plugins: [
+        typescript({
+            // Preserve native class inheritance for Obsidian's plugin and view classes.
+            target: "ES2017",
+            include: ["*.ts"]
+        }),
+        nodeResolve({ browser: true }),
+        commonjs()
+    ]
 };
