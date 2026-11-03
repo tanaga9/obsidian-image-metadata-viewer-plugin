@@ -553,7 +553,11 @@ function decodeExifUserComment(raw: Uint8Array | string | number[] | undefined |
             const isUnicode = startsWith(prefix, strToU8("UNICODE"));
             const isJis = startsWith(prefix, strToU8("JIS"));
             if (isJis) {
-                const sj = decodeBytes(data, "shift_jis"); if (sj) candidates.push(sj);
+                try {
+                    const text = new TextDecoder("shift_jis", { fatal: true })
+                        .decode(data).replace(/\u0000+$/g, "");
+                    if (text && !text.includes("\u0000")) return text;
+                } catch { /* Try the fallback decoders for invalid Shift_JIS. */ }
             }
             if (isUnicode) {
                 const le = decodeBytes(data, "utf-16le"); if (le) candidates.push(le);
@@ -1015,7 +1019,7 @@ function extractFromXmpAttributes(xml: string): string[] {
         let attribute: RegExpExecArray | null;
         while ((attribute = attributes.exec(tag[1])) !== null) {
             const name = attribute[1].slice(attribute[1].lastIndexOf(":") + 1).toLowerCase();
-            if (keys.has(name) && attribute[3]) out.push(htmlUnescape(attribute[3]));
+            if (keys.has(name) && attribute[3]) out.push(decodeXmlReferences(attribute[3]));
         }
     }
     return out;
@@ -1026,13 +1030,23 @@ function extractA1111BlockFromXmpText(xml: string): string | null {
     const candidates: string[] = [];
     let match: RegExpExecArray | null;
     while ((match = tokens.exec(xml)) !== null) {
-        const text = match[1] ?? htmlUnescape(match[2] ?? "");
+        const text = match[1] ?? decodeXmlReferences(match[2] ?? "");
         if (text.trim()) candidates.push(text.trim());
     }
     return selectBestParametersFromTexts(candidates, false);
 }
-function htmlUnescape(s: string): string {
-    return s.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+function decodeXmlReferences(s: string): string {
+    const named: Record<string, string> = { quot: '"', apos: "'", amp: "&", lt: "<", gt: ">" };
+    return s.replace(/&(quot|apos|amp|lt|gt|#([0-9]+)|#x([0-9a-fA-F]+));/g,
+        (reference, name: string, decimal?: string, hex?: string) => {
+            if (decimal === undefined && hex === undefined) return named[name];
+            const code = hex === undefined ? Number(decimal) : parseInt(hex, 16);
+            const valid = code === 9 || code === 10 || code === 13
+                || (code >= 0x20 && code <= 0xd7ff)
+                || (code >= 0xe000 && code <= 0xfffd)
+                || (code >= 0x10000 && code <= 0x10ffff);
+            return valid ? String.fromCodePoint(code) : reference;
+        });
 }
 
 // Scan entire file bytes for embedded JSON (sd-metadata) or parameters text

@@ -59,7 +59,10 @@ function jpegWithExtendedXmp(xmlBytes: Uint8Array): Uint8Array {
 }
 
 function jpegWithPrefixlessUserComment(parameters: string): Uint8Array {
-    const comment = utf16(parameters, true);
+    return jpegWithUserComment(utf16(parameters, true));
+}
+
+function jpegWithUserComment(comment: Uint8Array): Uint8Array {
     const tiff = new Uint8Array(44 + comment.length);
     const view = new DataView(tiff.buffer);
 
@@ -134,6 +137,15 @@ function testPrefixlessUtf16UserComment() {
     });
 }
 
+async function testJisUserCommentWithWindowsExtension() {
+    const settings = "\nNegative prompt: blur\nSteps: 20, Sampler: Euler";
+    // CP932 encodes 髙 as FB FC.
+    const comment = concat(encoder.encode("JIS\0\0\0\0\0"), Uint8Array.of(0xfb, 0xfc), encoder.encode(settings));
+    const jpeg = jpegWithUserComment(comment);
+    const metadata = await parseImageMeta(asArrayBuffer(jpeg), "jpg");
+    assertEqual(metadata.raw.parameters, "髙" + settings);
+}
+
 async function testJpegExifTakesPriorityOverHigherScoringXmp() {
     const exifParameters = "EXIF portrait\nNegative prompt: blur\nSeed: 1";
     const xmpParameters = "XMP portrait\nNegative prompt: blur\nSteps: 20, Sampler: Euler, CFG scale: 7, Seed: 2, Size: 512x512";
@@ -152,12 +164,15 @@ async function testJpegExifTakesPriorityOverHigherScoringXmp() {
 
 async function testJpegCommentPriority() {
     const xmpPrompt = "portrait, soft lighting, film grain";
-    const xmp = jpegWithXmp(encoder.encode(`<rdf:Description parameters="${xmpPrompt}"/>`));
     const commentParameters = "portrait\nNegative prompt: blur\nSteps: 20, Sampler: Euler";
-    for (const [comment, expected] of [
-        ["Camera note, lighting note, location note", xmpPrompt],
-        [commentParameters, commentParameters],
+    const xmpParameters = "portrait 🐈\nSteps: 30, Sampler: Euler";
+    for (const [attribute, comment, expected] of [
+        [xmpPrompt, "Camera note, lighting note, location note", xmpPrompt],
+        [xmpPrompt, commentParameters, commentParameters],
+        ["portrait &#128008;&#10;Steps: 30, Sampler: Euler", commentParameters, xmpParameters],
+        ["portrait &#x1F408;&#xA;Steps: 30, Sampler: Euler", commentParameters, xmpParameters],
     ]) {
+        const xmp = jpegWithXmp(encoder.encode(`<rdf:Description parameters="${attribute}"/>`));
         const payload = encoder.encode(comment);
         const length = payload.length + 2;
         const segment = Uint8Array.of(0xff, 0xfe, length >>> 8, length & 0xff);
@@ -172,6 +187,7 @@ function main() {
         .then(() => testInlineXmpDoesNotReturnXmlMarkup())
         .then(() => testJpegXmpBodyOutranksPromptGuess())
         .then(() => testPrefixlessUtf16UserComment())
+        .then(() => testJisUserCommentWithWindowsExtension())
         .then(() => testJpegExifTakesPriorityOverHigherScoringXmp())
         .then(() => testJpegCommentPriority());
 }

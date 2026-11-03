@@ -129,7 +129,7 @@ WebP images store metadata in RIFF chunks.
 ### Priority
 
 - EXIF-derived texts, XMP attribute values, and an inline XMP snippet are collected in that order.
-- The highest-scoring candidate wins. Collection order breaks ties.
+- The highest-scoring candidate wins. Collection order breaks ties, so a higher-scoring XMP candidate can outrank EXIF. A strict EXIF-first rule for WebP would be a separate selection policy change.
 - Recovery scans run when the selected parameters are missing or appear garbled.
 
 ### Encoding
@@ -143,7 +143,7 @@ XMP metadata is extracted and interpreted with the following considerations:
 - A1111 and Forge do not use XMP by default; PNG tEXt and EXIF are primary sources. Some tools do use XMP, and those cases are supported.
 - Attribute Extraction:
   - Extract attribute values for keys such as `sd-metadata`, `sd_metadata`, `parameters`, and `Parameters` from the XML.
-  - HTML-unescape entities like `&quot;`, `&amp;`, etc.
+  - Decode XML named and numeric character references before evaluating attribute values.
 - Text Extraction:
   - Extract an A1111-like snippet from the XML when one is found. JPEG uses this candidate if EXIF and XMP attributes yield no parameters. WebP scores the snippet alongside its other candidates. The full packet remains available as raw XMP.
 
@@ -192,7 +192,7 @@ Decoding metadata requires heuristics to handle various encodings:
 
 - **UserComment Prefix**: The first 8 bytes indicate encoding (`ASCII`, `UNICODE`, `JIS`), guiding initial decoding attempts:
   - `UNICODE` suggests UTF-16LE or UTF-16BE.
-  - `JIS` suggests MS932 (a Microsoft variant of Shift_JIS), so attempt MS932 decoding first, falling back to generic Shift_JIS if needed.
+  - For a `JIS` prefix, use strict `shift_jis` decoding. If decoding fails or the text is empty or contains embedded NULs, score the fallback candidates. In `TextDecoder`, `ms932` and `windows-31j` are labels for the same decoder, which reads Windows extensions such as 髙 (`FB FC`).
 - **UTF-16 Likelihood**: Counts of NUL bytes in even or odd positions help decide between UTF-16LE and UTF-16BE.
 - **XMP Decoding**:
   - Decode the packet before XML or attribute extraction. Honor UTF-8, UTF-16LE, and UTF-16BE Byte Order Marks (BOMs), removing the BOM from the decoded text.
@@ -200,15 +200,17 @@ Decoding metadata requires heuristics to handle various encodings:
   - Otherwise, accept a packet that passes strict UTF-8 decoding before trying Shift_JIS or general scoring; valid Japanese UTF-8 byte sequences can otherwise be misclassified.
   - Fall back to best-of decoding and consider XML `encoding="..."` attributes.
 - **Best-Of Decoder**:
-  - Attempts multiple encodings: `utf-8`, `utf-16le`, `utf-16be`, `shift_jis`, and `latin1`.
-  - Selects the best decoding based on Stable Diffusion markers, ASCII ratio, control-character penalties, and plausible Unicode punctuation.
+  - Tries `utf-8`, `utf-16le`, `utf-16be`, `shift_jis`, and `latin1`. The `shift_jis` decoder also covers `ms932` and `windows-31j`.
+  - When the bytes resemble Shift_JIS, tries `shift_jis` first. Every candidate is still scored, and trial order breaks ties.
+  - Rewards CJK characters, kana, printable ASCII, and common separators. Penalizes replacement characters and unexpected control characters.
 
 ## Recovery Heuristics
 
 When standard extraction fails, recovery heuristics attempt to locate metadata:
 
 - Run format-aware parsing first. Recovery scans are gated fallbacks, not a substitute for PNG chunk, JPEG APP1/COM, WebP RIFF, EXIF, or XMP parsing.
-- Whole-file decoding is expensive and can produce false positives from image data. Apply it only after structured candidates fail validation.
+- Whole-file decoding runs when structured extraction yields no parameters or the selected text appears garbled. It can be expensive and can produce false positives from image data.
+- When hardening recovery for large or untrusted files, cap the scanned bytes or decoded candidate length. The current whole-file scans have no explicit limit.
 
 - **Targeted UTF-16 Scan**:
   - Searches file bytes for UTF-16LE/BE encoded `Negative prompt:` strings.
